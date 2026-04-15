@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graph Isomorphism — GraphAnalyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+:root {
+  --bg:#f0f2f7;--surface-0:#ffffff;--surface-1:#f7f8fc;--surface-2:#eceef5;
+  --surface-glass:rgba(255,255,255,0.8);--border-light:rgba(180,192,220,0.45);--border-med:rgba(160,175,210,0.6);
+  --text-primary:#0f172a;--text-secondary:#374151;--text-tertiary:#6b7a99;--text-muted:#9aa3bb;
+  --accent:#4f73ff;--accent-soft:#eef1ff;--accent-violet:#7c5cfc;--accent-teal:#0d9e8a;
+  --success:#0e8a5f;--success-soft:#e8f9f3;--success-border:rgba(14,138,95,0.2);
+  --danger:#c94040;--danger-soft:#fff0f0;--danger-border:rgba(201,64,64,0.2);
+  --shadow-xs:0 1px 3px rgba(15,23,42,0.05);--shadow-sm:0 4px 16px rgba(15,23,42,0.07);
+  --r-sm:10px;--r-md:16px;--r-lg:22px;--r-xl:28px;--r-pill:999px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text-primary);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(79,115,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(79,115,255,0.03) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;z-index:0;}
+.orb{position:fixed;border-radius:50%;filter:blur(70px);pointer-events:none;z-index:0;}
+.orb1{width:500px;height:500px;background:radial-gradient(circle,rgba(79,115,255,0.08) 0%,transparent 70%);top:-150px;right:100px;animation:orbFloat 20s ease-in-out infinite;}
+.orb2{width:420px;height:420px;background:radial-gradient(circle,rgba(14,138,95,0.07) 0%,transparent 70%);bottom:-100px;left:-60px;animation:orbFloat 24s ease-in-out infinite;animation-delay:-11s;}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1);}33%{transform:translate(25px,-35px) scale(1.04);}66%{transform:translate(-15px,25px) scale(0.97);}}
+header{position:relative;z-index:10;padding:16px 28px;background:var(--surface-glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:14px;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#fff,var(--surface-2));border:1px solid var(--border-med);display:grid;place-items:center;box-shadow:var(--shadow-xs);}
+.logo-title{font-family:'Fraunces',serif;font-size:19px;font-weight:700;letter-spacing:-0.02em;}
+.logo-title em{font-style:italic;font-weight:300;color:var(--accent);}
+.back-link{margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--r-pill);border:1px solid var(--border-med);background:var(--surface-0);font-size:13px;font-weight:600;color:var(--text-tertiary);text-decoration:none;transition:all 0.15s;box-shadow:var(--shadow-xs);}
+.back-link:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);}
+.page{position:relative;z-index:10;max-width:1080px;margin:0 auto;padding:56px 28px 80px;}
+.hero{margin-bottom:56px;}
+.hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--accent-violet);margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+.hero-eyebrow::before{content:'';width:24px;height:1px;background:var(--accent-violet);}
+.hero-title{font-family:'Fraunces',serif;font-size:clamp(2rem,5vw,3.2rem);font-weight:700;line-height:1.08;letter-spacing:-0.03em;margin-bottom:16px;}
+.hero-title em{font-style:italic;font-weight:300;color:var(--accent-violet);}
+.hero-desc{font-size:16px;color:var(--text-tertiary);max-width:580px;line-height:1.75;}
+section{margin-bottom:52px;}
+.section-label{font-size:10.5px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-muted);margin-bottom:20px;display:flex;align-items:center;gap:10px;}
+.section-label::before{content:'';width:16px;height:1px;background:var(--text-muted);}
+.section-title{font-family:'Fraunces',serif;font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px;}
+.section-sub{font-size:14px;color:var(--text-tertiary);line-height:1.7;margin-bottom:24px;}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+.card{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-lg);padding:22px;box-shadow:var(--shadow-xs);transition:transform 0.2s,box-shadow 0.2s,border-color 0.2s;}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-sm);border-color:var(--border-med);}
+.card-icon{font-size:24px;margin-bottom:12px;}
+.card-title{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-secondary);}
+.card-body{font-size:13px;color:var(--text-tertiary);line-height:1.7;}
+.verdict-demo{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.verdict-box{border-radius:var(--r-lg);padding:24px;border:1.5px solid;}
+.verdict-box.pass{background:var(--success-soft);border-color:var(--success-border);}
+.verdict-box.fail{background:var(--danger-soft);border-color:var(--danger-border);}
+.verdict-icon{font-size:28px;margin-bottom:10px;}
+.verdict-label{font-family:'Fraunces',serif;font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-bottom:6px;}
+.verdict-box.pass .verdict-label{color:var(--success);}
+.verdict-box.fail .verdict-label{color:var(--danger);}
+.verdict-desc{font-size:13px;line-height:1.65;color:var(--text-tertiary);}
+.compare-demo{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-xs);}
+.compare-bar{padding:12px 18px;background:var(--surface-2);border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:10px;}
+.compare-bar span{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;}
+.compare-graphs{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;padding:20px;align-items:center;}
+.vs-badge{width:40px;height:40px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border-med);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--text-muted);font-family:'DM Mono',monospace;flex-shrink:0;}
+.graph-box{border-radius:var(--r-md);border:1px solid var(--border-light);overflow:hidden;}
+.graph-box-head{padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;font-family:'DM Mono',monospace;color:var(--text-muted);letter-spacing:0.08em;}
+.pitfalls{display:flex;flex-direction:column;gap:12px;}
+.pitfall{display:flex;gap:16px;align-items:flex-start;background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-md);padding:18px 20px;box-shadow:var(--shadow-xs);transition:transform 0.2s,border-color 0.2s;}
+.pitfall:hover{transform:translateX(4px);border-color:var(--border-med);}
+.pitfall-icon{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:16px;flex-shrink:0;background:var(--surface-2);border:1px solid var(--border-light);}
+.pitfall-title{font-size:14.5px;font-weight:700;margin-bottom:4px;color:var(--text-secondary);}
+.pitfall-desc{font-size:13px;color:var(--text-tertiary);line-height:1.65;}
+.fade-in{opacity:0;transform:translateY(18px);animation:fadeUp 0.55s ease both;}
+.fade-in:nth-child(1){animation-delay:0.05s}.fade-in:nth-child(2){animation-delay:0.1s}.fade-in:nth-child(3){animation-delay:0.15s}.fade-in:nth-child(4){animation-delay:0.2s}
+@keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border-med);border-radius:2px}
+@media(max-width:600px){.verdict-demo{grid-template-columns:1fr}.compare-graphs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="6" cy="6" r="3" fill="#4f73ff" opacity="0.9"/>
+        <circle cx="14" cy="6" r="3" fill="#7c5cfc" opacity="0.9"/>
+        <circle cx="10" cy="14" r="3" fill="#0d9e8a" opacity="0.9"/>
+        <line x1="6" y1="6" x2="14" y2="6" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="6" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="14" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+      </svg>
+    </div>
+    <div class="logo-title">Graph<em>Analyzer</em></div>
+  </div>
+  <a href="index.html" class="back-link">← Back to Analyzer</a>
+</header>
+
+<div class="page">
+  <div class="hero fade-in">
+    <div class="hero-eyebrow">02 / Isomorphism</div>
+    <h1 class="hero-title">Graph <em>Isomorphism</em><br>& Structural Equivalence</h1>
+    <p class="hero-desc">Two graphs are isomorphic if there exists a bijection between their vertex sets that preserves all edges. This is one of the deepest problems in combinatorics.</p>
+  </div>
+
+  <section class="fade-in">
+    <div class="section-label">Definition</div>
+    <h2 class="section-title">What is Graph Isomorphism?</h2>
+    <p class="section-sub">Informally: two graphs are "the same" if you can relabel the nodes of one to get the other. The exact structure of connections — not the labels — is what matters.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">🔗</div>
+        <div class="card-title">Edge Preservation</div>
+        <div class="card-body">A bijection f: V(G₁) → V(G₂) is an isomorphism if (u,v) ∈ E(G₁) ⟺ (f(u), f(v)) ∈ E(G₂) for all pairs u,v.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧩</div>
+        <div class="card-title">Structural Identity</div>
+        <div class="card-body">Isomorphic graphs are structurally identical — same connectivity patterns, same cycles, same vertex degrees, same eigenvalues of their adjacency matrices.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔢</div>
+        <div class="card-title">Complexity</div>
+        <div class="card-body">Graph isomorphism sits in NP but is not known to be NP-complete. It's one of very few natural problems with this property (GI-complete class).</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Necessary Conditions</div>
+    <h2 class="section-title">Quick Non-Isomorphism Checks</h2>
+    <p class="section-sub">These invariants are necessary for isomorphism. If any fails, the graphs are <em>definitely</em> not isomorphic. They're fast to compute.</p>
+    <div class="cards">
+      <div class="card"><div class="card-icon">📊</div><div class="card-title">Same n and m</div><div class="card-body">Same number of nodes and edges. Different counts → immediately not isomorphic.</div></div>
+      <div class="card"><div class="card-icon">📈</div><div class="card-title">Degree Sequence</div><div class="card-body">The sorted list of node degrees must be identical. A quick O(n log n) filter.</div></div>
+      <div class="card"><div class="card-icon">🔄</div><div class="card-title">Cycle Structure</div><div class="card-body">Same number of cycles of each length. Same girth (shortest cycle). Same chromatic number.</div></div>
+      <div class="card"><div class="card-icon">🌳</div><div class="card-title">Spectrum</div><div class="card-body">Eigenvalues of the adjacency matrix must match. Cospectral graphs can still be non-isomorphic (Seidel 1957).</div></div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Verdict Types</div>
+    <h2 class="section-title">Reading the Analyzer Results</h2>
+    <div class="verdict-demo">
+      <div class="verdict-box pass">
+        <div class="verdict-icon">✓</div>
+        <div class="verdict-label">WL: Isomorphic</div>
+        <div class="verdict-desc">The WL color refinement produces identical certificates for both graphs. They <em>may</em> be isomorphic — WL is not a complete test. No distinguishing invariant was found.</div>
+      </div>
+      <div class="verdict-box fail">
+        <div class="verdict-icon">✗</div>
+        <div class="verdict-label">Non-Isomorphic</div>
+        <div class="verdict-desc">WL found different color histograms. The graphs are <em>definitively</em> not isomorphic — no valid bijection exists. This is a proof, not just a signal.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Live Comparison</div>
+    <h2 class="section-title">Side-by-Side Example</h2>
+    <div class="compare-demo">
+      <div class="compare-bar"><span>ISOMORPHIC PAIR — Same structure, different labels</span></div>
+      <div class="compare-graphs">
+        <div class="graph-box">
+          <div class="graph-box-head">GRAPH A</div>
+          <svg viewBox="0 0 200 180" width="100%" id="iso-g1"></svg>
+        </div>
+        <div class="vs-badge">VS</div>
+        <div class="graph-box">
+          <div class="graph-box-head">GRAPH B</div>
+          <svg viewBox="0 0 200 180" width="100%" id="iso-g2"></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Limitations</div>
+    <h2 class="section-title">When WL Can Fail</h2>
+    <p class="section-sub">The WL test is powerful but not complete. Here are important cases where it cannot distinguish non-isomorphic graphs:</p>
+    <div class="pitfalls">
+      <div class="pitfall"><div class="pitfall-icon">⚠️</div><div><div class="pitfall-title">Regular Graphs</div><div class="pitfall-desc">Two k-regular graphs with the same number of vertices always have identical WL certificates after iter 0, regardless of structure. More iterations don't help.</div></div></div>
+      <div class="pitfall"><div class="pitfall-icon">🔁</div><div><div class="pitfall-title">CFI Graphs (Cai-Fürer-Immerman)</div><div class="pitfall-desc">Specifically constructed graph families that defeat 1-WL. Even higher k-WL can be defeated by appropriate CFI constructions.</div></div></div>
+      <div class="pitfall"><div class="pitfall-icon">🧩</div><div><div class="pitfall-title">Strongly Regular Graphs</div><div class="pitfall-desc">Many non-isomorphic strongly regular graphs (e.g., Petersen vs. others with the same parameters) have identical 1-WL certificates.</div></div></div>
+      <div class="pitfall"><div class="pitfall-icon">📐</div><div><div class="pitfall-title">Completeness Gap</div><div class="pitfall-desc">For any fixed k, there exist non-isomorphic graphs that k-WL cannot distinguish. Only the full GI algorithm is complete.</div></div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const PALETTE = ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22'];
+function drawIsoGraph(svgId, nodePos, edges) {
+  const svg = d3.select('#' + svgId);
+  svg.selectAll('line').data(edges).join('line')
+    .attr('x1',d=>nodePos[d[0]][0]).attr('y1',d=>nodePos[d[0]][1])
+    .attr('x2',d=>nodePos[d[1]][0]).attr('y2',d=>nodePos[d[1]][1])
+    .attr('stroke','rgba(148,163,184,0.4)').attr('stroke-width',1.8);
+  const ng = svg.selectAll('g').data(nodePos).join('g')
+    .attr('transform',(_,i)=>`translate(${nodePos[i][0]},${nodePos[i][1]})`);
+  ng.append('circle').attr('r',0).attr('fill',(_,i)=>PALETTE[i%PALETTE.length])
+    .attr('stroke','white').attr('stroke-width',2)
+    .attr('filter','drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
+    .transition().delay((_,i)=>i*60).duration(400).ease(d3.easeBackOut).attr('r',14);
+  ng.append('text').text((_,i)=>i).attr('text-anchor','middle').attr('dy','0.35em')
+    .attr('fill','white').attr('font-family','DM Mono,monospace').attr('font-size','10').attr('font-weight','700').attr('pointer-events','none')
+    .style('opacity',0).transition().delay((_,i)=>i*60+200).duration(300).style('opacity',1);
+}
+
+// Isomorphic pair: same structure, different node positions/labels
+const g1nodes = [[100,25],[30,80],[170,80],[30,150],[100,150],[170,150]];
+const g2nodes = [[100,25],[170,80],[30,80],[170,150],[100,150],[30,150]];
+const edges = [[0,1],[0,2],[1,2],[1,3],[2,4],[3,4],[3,5],[4,5]];
+drawIsoGraph('iso-g1', g1nodes, edges);
+drawIsoGraph('iso-g2', g2nodes, edges);
+</script>
+</body>
+</html>

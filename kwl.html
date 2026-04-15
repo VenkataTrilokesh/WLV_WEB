@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>k-WL Test — GraphAnalyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+:root {
+  --bg: #f0f2f7;
+  --surface-0: #ffffff;
+  --surface-1: #f7f8fc;
+  --surface-2: #eceef5;
+  --surface-glass: rgba(255,255,255,0.8);
+  --border-light: rgba(180,192,220,0.45);
+  --border-med: rgba(160,175,210,0.6);
+  --text-primary: #0f172a;
+  --text-secondary: #374151;
+  --text-tertiary: #6b7a99;
+  --text-muted: #9aa3bb;
+  --accent: #4f73ff;
+  --accent-soft: #eef1ff;
+  --accent-violet: #7c5cfc;
+  --accent-teal: #0d9e8a;
+  --accent-teal-soft: #e6faf7;
+  --success: #0e8a5f;
+  --success-soft: #e8f9f3;
+  --shadow-xs: 0 1px 3px rgba(15,23,42,0.05);
+  --shadow-sm: 0 4px 16px rgba(15,23,42,0.07);
+  --r-sm: 10px; --r-md: 16px; --r-lg: 22px; --r-xl: 28px; --r-pill: 999px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(rgba(79,115,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79,115,255,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+  z-index: 0;
+}
+.orb {
+  position: fixed; border-radius: 50%; filter: blur(70px);
+  pointer-events: none; z-index: 0;
+}
+.orb1 { width:500px;height:500px;background:radial-gradient(circle,rgba(79,115,255,0.08) 0%,transparent 70%);top:-150px;left:-100px;animation:orbFloat 22s ease-in-out infinite; }
+.orb2 { width:400px;height:400px;background:radial-gradient(circle,rgba(124,92,252,0.07) 0%,transparent 70%);bottom:-80px;right:-80px;animation:orbFloat 18s ease-in-out infinite;animation-delay:-9s; }
+@keyframes orbFloat {
+  0%,100%{transform:translate(0,0) scale(1);}
+  33%{transform:translate(25px,-35px) scale(1.04);}
+  66%{transform:translate(-15px,25px) scale(0.97);}
+}
+header {
+  position: relative; z-index: 10;
+  padding: 16px 28px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; gap: 14px;
+}
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-mark {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: linear-gradient(145deg,#fff,var(--surface-2));
+  border: 1px solid var(--border-med);
+  display: grid; place-items: center;
+  box-shadow: var(--shadow-xs);
+}
+.logo-title {
+  font-family: 'Fraunces', serif;
+  font-size: 19px; font-weight: 700; letter-spacing: -0.02em;
+}
+.logo-title em { font-style: italic; font-weight: 300; color: var(--accent); }
+.back-link {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: var(--r-pill);
+  border: 1px solid var(--border-med);
+  background: var(--surface-0);
+  font-size: 13px; font-weight: 600; color: var(--text-tertiary);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-xs);
+}
+.back-link:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.page { position:relative;z-index:10;max-width:1080px;margin:0 auto;padding:56px 28px 80px; }
+.hero { margin-bottom: 56px; }
+.hero-eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.hero-eyebrow::before { content:''; width:24px;height:1px;background:var(--accent); }
+.hero-title {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 700; line-height: 1.08; letter-spacing: -0.03em; margin-bottom: 16px;
+}
+.hero-title em { font-style: italic; font-weight: 300; color: var(--accent); }
+.hero-desc { font-size: 16px; color: var(--text-tertiary); max-width: 580px; line-height: 1.75; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.pill {
+  font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: var(--r-pill);
+  border: 1px solid; font-family: 'DM Mono', monospace;
+}
+.pill-blue { border-color: rgba(79,115,255,0.35); color: var(--accent); background: var(--accent-soft); }
+.pill-green { border-color: rgba(13,158,138,0.35); color: var(--accent-teal); background: var(--accent-teal-soft); }
+.pill-violet { border-color: rgba(124,92,252,0.35); color: var(--accent-violet); background: rgba(124,92,252,0.08); }
+section { margin-bottom: 52px; }
+.section-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-label::before { content:''; width:16px;height:1px;background:var(--text-muted); }
+.section-title { font-family:'Fraunces',serif; font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px; }
+.section-sub { font-size:14px;color:var(--text-tertiary);line-height:1.7;margin-bottom:24px; }
+.cards { display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px; }
+.card {
+  background: var(--surface-0); border:1px solid var(--border-light);
+  border-radius: var(--r-lg); padding: 22px;
+  box-shadow: var(--shadow-xs);
+  transition: transform 0.2s ease, box-shadow 0.2s, border-color 0.2s;
+}
+.card:hover { transform:translateY(-3px);box-shadow:var(--shadow-sm);border-color:var(--border-med); }
+.card-icon { font-size:24px;margin-bottom:12px; }
+.card-title { font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-secondary); }
+.card-body { font-size:13px;color:var(--text-tertiary);line-height:1.7; }
+.steps { display:flex;flex-direction:column;gap:12px; }
+.step {
+  display:flex;gap:16px;align-items:flex-start;
+  background:var(--surface-0);border:1px solid var(--border-light);
+  border-radius:var(--r-md);padding:18px 20px;
+  box-shadow:var(--shadow-xs);
+  transition:transform 0.2s,border-color 0.2s;
+}
+.step:hover { transform:translateX(4px);border-color:var(--border-med); }
+.step-num {
+  width:32px;height:32px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--accent-violet));
+  display:flex;align-items:center;justify-content:center;
+  font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:white;
+}
+.step-title { font-size:14.5px;font-weight:700;margin-bottom:4px;color:var(--text-secondary); }
+.step-desc { font-size:13px;color:var(--text-tertiary);line-height:1.65; }
+.formula {
+  background:var(--surface-1);border:1px solid var(--border-light);
+  border-left:3px solid var(--accent);
+  border-radius:var(--r-sm);padding:16px 20px;
+  font-family:'DM Mono',monospace;font-size:13.5px;
+  color:var(--accent);line-height:1.8;overflow-x:auto;
+  margin:16px 0;
+}
+.k-table { width:100%;border-collapse:collapse;font-size:13px; }
+.k-table th {
+  background:var(--surface-2);padding:10px 14px;text-align:left;
+  font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.08em;
+  color:var(--text-muted);border:1px solid var(--border-light);font-weight:600;
+}
+.k-table td {
+  padding:10px 14px;border:1px solid var(--border-light);
+  color:var(--text-secondary);vertical-align:top;line-height:1.55;
+}
+.k-table tr:hover td { background:var(--surface-1); }
+.k-table td.mono { color:var(--accent);font-family:'DM Mono',monospace;font-weight:700; }
+.k-table td.muted { color:var(--text-muted); }
+.demo-wrap {
+  background:var(--surface-0);border:1px solid var(--border-light);
+  border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-xs);
+}
+.demo-bar {
+  padding:12px 18px;background:var(--surface-2);
+  border-bottom:1px solid var(--border-light);
+  display:flex;align-items:center;gap:10px;
+}
+.demo-dot { width:8px;height:8px;border-radius:50%;background:var(--success); animation:pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(14,138,95,0.5);}50%{box-shadow:0 0 0 5px rgba(14,138,95,0);} }
+.demo-bar-title { font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em; }
+.demo-body { padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start; }
+.demo-controls {
+  padding:12px 18px;border-top:1px solid var(--border-light);
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+}
+.demo-btn {
+  font-family:'DM Mono',monospace;font-size:12px;padding:6px 14px;
+  border-radius:var(--r-pill);border:1px solid var(--border-med);
+  background:var(--surface-0);color:var(--text-tertiary);cursor:pointer;
+  transition:all 0.15s;
+}
+.demo-btn.active, .demo-btn:hover {
+  background:var(--accent);border-color:var(--accent);color:white;
+}
+.legend { display:flex;flex-direction:column;gap:10px; }
+.legend-item { display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-tertiary); }
+.legend-dot { width:14px;height:14px;border-radius:50%;flex-shrink:0;box-shadow:var(--shadow-xs); }
+.fade-in { opacity:0;transform:translateY(18px);animation:fadeUp 0.55s ease both; }
+.fade-in:nth-child(1){animation-delay:0.05s} .fade-in:nth-child(2){animation-delay:0.1s}
+.fade-in:nth-child(3){animation-delay:0.15s} .fade-in:nth-child(4){animation-delay:0.2s}
+@keyframes fadeUp { to{opacity:1;transform:translateY(0)} }
+::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:var(--border-med);border-radius:2px}
+@media(max-width:700px){.demo-body{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="6" cy="6" r="3" fill="#4f73ff" opacity="0.9"/>
+        <circle cx="14" cy="6" r="3" fill="#7c5cfc" opacity="0.9"/>
+        <circle cx="10" cy="14" r="3" fill="#0d9e8a" opacity="0.9"/>
+        <line x1="6" y1="6" x2="14" y2="6" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="6" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="14" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+      </svg>
+    </div>
+    <div class="logo-title">Graph<em>Analyzer</em></div>
+  </div>
+  <a href="index.html" class="back-link">← Back to Analyzer</a>
+</header>
+
+<div class="page">
+  <div class="hero fade-in">
+    <div class="hero-eyebrow">01 / k-WL Test</div>
+    <h1 class="hero-title">The Weisfeiler–<em>Lehman</em><br>Graph Isomorphism Test</h1>
+    <p class="hero-desc">A powerful combinatorial algorithm that iteratively refines node colors based on neighborhood structure to detect graph non-isomorphism.</p>
+    <div class="pills">
+      <span class="pill pill-blue">Color Refinement</span>
+      <span class="pill pill-green">O(n² log n)</span>
+      <span class="pill pill-violet">k-dimensional</span>
+    </div>
+  </div>
+
+  <section class="fade-in">
+    <div class="section-label">Core Concept</div>
+    <h2 class="section-title">What is the WL Test?</h2>
+    <p class="section-sub">The Weisfeiler–Lehman algorithm assigns colors to nodes by repeatedly hashing each node's color with its neighbors' colors. Two graphs that produce different color histograms at any iteration are <em>definitely not isomorphic</em>.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">🎨</div>
+        <div class="card-title">Color Refinement</div>
+        <div class="card-body">Each node starts with a color based on its degree. Iteratively, each node's color is updated by hashing it with the multiset of neighbor colors.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔁</div>
+        <div class="card-title">Convergence</div>
+        <div class="card-body">The process terminates when the color partition stabilizes — no new color classes are created. This stable partition is the graph's WL certificate.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚖️</div>
+        <div class="card-title">Comparison</div>
+        <div class="card-body">Two graphs are compared by their final color histograms. A mismatch at any iteration proves non-isomorphism. A match is necessary but not sufficient.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Algorithm Steps</div>
+    <h2 class="section-title">How It Works</h2>
+    <div class="formula">c⁰(v) = deg(v)<br>cᵢ⁺¹(v) = HASH( cᵢ(v), sort({ cᵢ(u) : u ∈ N(v) }) )</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div><div class="step-title">Initialize Colors</div><div class="step-desc">Assign each node a color based on its degree (number of neighbors). Nodes with the same degree start with the same color.</div></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div><div class="step-title">Aggregate Neighborhoods</div><div class="step-desc">For each node, collect the sorted multiset of its neighbors' current colors. This captures the local structural context.</div></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div><div class="step-title">Hash & Relabel</div><div class="step-desc">Compute a new color for each node by hashing (own color, neighbor color multiset). Equal tuples always map to the same new color.</div></div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div><div class="step-title">Check Convergence</div><div class="step-desc">If the color partition hasn't changed, the algorithm terminates. Otherwise, repeat from step 2.</div></div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div><div class="step-title">Compare Certificates</div><div class="step-desc">The final color histogram is the WL certificate. Different certificates → graphs are not isomorphic. Same → inconclusive.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">k-Dimensional Extension</div>
+    <h2 class="section-title">Beyond 1-WL: The k Parameter</h2>
+    <p class="section-sub">Higher k means the algorithm considers k-tuples of nodes, greatly increasing discriminating power at the cost of computational complexity.</p>
+    <table class="k-table">
+      <thead>
+        <tr><th>k</th><th>Considers</th><th>Complexity</th><th>Power</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">k = 1</td><td>Individual nodes + neighbors</td><td class="mono">O(n²)</td><td>Standard WL — detects most non-isomorphic pairs</td></tr>
+        <tr><td class="mono">k = 2</td><td>Pairs of nodes</td><td class="mono">O(n³)</td><td>More powerful; detects some k=1 failures</td></tr>
+        <tr><td class="mono">k = 3</td><td>Triples of nodes</td><td class="mono">O(n⁴)</td><td>Captures triangle and 3-clique structure</td></tr>
+        <tr><td class="mono">k ≥ 4</td><td>k-tuples</td><td class="mono">O(nᵏ⁺¹)</td><td>Highly discriminating; impractical for large n</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Live Demo</div>
+    <h2 class="section-title">Interactive Refinement</h2>
+    <p class="section-sub">Watch the WL algorithm run step by step on a sample graph.</p>
+    <div class="demo-wrap">
+      <div class="demo-bar">
+        <div class="demo-dot"></div>
+        <div class="demo-bar-title">INTERACTIVE / WL DEMO</div>
+      </div>
+      <div class="demo-body">
+        <svg id="demo-svg" viewBox="0 0 280 240" style="width:100%;"></svg>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="demo-controls">
+        <button class="demo-btn active" data-iter="0">Initial</button>
+        <button class="demo-btn" data-iter="1">Iter 1</button>
+        <button class="demo-btn" data-iter="2">Iter 2</button>
+        <button class="demo-btn" data-iter="3">Iter 3</button>
+        <span id="demo-info" style="margin-left:auto;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);"></span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const PALETTE = ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#c94040','#2980b9','#8e44ad'];
+// Sample graph
+const nodes = [{id:0,x:140,y:30},{id:1,x:50,y:90},{id:2,x:230,y:90},{id:3,x:30,y:170},{id:4,x:140,y:170},{id:5,x:250,y:170}];
+const links = [[0,1],[0,2],[1,2],[1,3],[2,4],[2,5],[3,4],[4,5]];
+// Pre-computed WL iterations
+const iterColors = [
+  [2,2,3,1,2,1],  // iter 0: degree-based
+  [3,4,5,0,3,0],  // iter 1
+  [4,2,6,1,5,1],  // iter 2
+  [4,2,6,1,5,1],  // iter 3 (converged)
+];
+const colorNames = [['deg 1','deg 2','deg 3'],['class 0','class 1','class 2','class 3','class 4','class 5','class 6']];
+
+let currentIter = 0;
+const svg = d3.select('#demo-svg');
+
+// Draw edges
+svg.selectAll('line').data(links).join('line')
+  .attr('x1',d=>nodes[d[0]].x).attr('y1',d=>nodes[d[0]].y)
+  .attr('x2',d=>nodes[d[1]].x).attr('y2',d=>nodes[d[1]].y)
+  .attr('stroke','rgba(148,163,184,0.4)').attr('stroke-width',1.8);
+
+// Draw nodes
+const ng = svg.selectAll('g.node').data(nodes).join('g')
+  .attr('class','node').attr('transform',d=>`translate(${d.x},${d.y})`);
+ng.append('circle').attr('r',18).attr('fill',(d,i)=>PALETTE[iterColors[0][i]%PALETTE.length])
+  .attr('stroke','white').attr('stroke-width',2.5)
+  .attr('filter','drop-shadow(0 2px 4px rgba(0,0,0,0.12))');
+ng.append('text').text(d=>d.id).attr('text-anchor','middle').attr('dy','0.35em')
+  .attr('fill','white').attr('font-family','DM Mono,monospace').attr('font-size','11').attr('font-weight','700').attr('pointer-events','none');
+
+function updateLegend(iter) {
+  const colors = iterColors[iter];
+  const unique = [...new Set(colors)];
+  const legend = document.getElementById('legend');
+  legend.innerHTML = '';
+  unique.forEach(c => {
+    const nodesWithColor = nodes.filter((_,i) => colors[i] === c).map(n => n.id);
+    const div = document.createElement('div');
+    div.className = 'legend-item';
+    div.innerHTML = `<div class="legend-dot" style="background:${PALETTE[c%PALETTE.length]}"></div>
+      <span>Color ${c} — nodes: {${nodesWithColor.join(', ')}}</span>`;
+    legend.appendChild(div);
+  });
+  document.getElementById('demo-info').textContent = `${unique.length} color classes`;
+}
+
+function setIter(iter) {
+  currentIter = iter;
+  const colors = iterColors[iter];
+  ng.select('circle').transition().duration(500).ease(d3.easeCubicInOut)
+    .attr('fill', (d,i) => PALETTE[colors[i]%PALETTE.length]);
+  document.querySelectorAll('.demo-btn').forEach((b,bi) => {
+    b.classList.toggle('active', bi === iter);
+  });
+  updateLegend(iter);
+}
+
+document.querySelectorAll('.demo-btn').forEach((btn, i) => {
+  btn.addEventListener('click', () => setIter(i));
+});
+
+updateLegend(0);
+</script>
+</body>
+</html>

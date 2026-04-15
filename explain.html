@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reading the Output — GraphAnalyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+:root {
+  --bg:#f0f2f7;--surface-0:#ffffff;--surface-1:#f7f8fc;--surface-2:#eceef5;
+  --surface-glass:rgba(255,255,255,0.8);--border-light:rgba(180,192,220,0.45);--border-med:rgba(160,175,210,0.6);
+  --text-primary:#0f172a;--text-secondary:#374151;--text-tertiary:#6b7a99;--text-muted:#9aa3bb;
+  --accent:#4f73ff;--accent-soft:#eef1ff;--accent-violet:#7c5cfc;--accent-teal:#0d9e8a;--accent-teal-soft:#e6faf7;
+  --warning:#b86b00;--warning-soft:#fff7ea;--warning-border:rgba(184,107,0,0.2);
+  --success:#0e8a5f;--success-soft:#e8f9f3;--success-border:rgba(14,138,95,0.2);
+  --danger:#c94040;--danger-soft:#fff0f0;--danger-border:rgba(201,64,64,0.2);
+  --shadow-xs:0 1px 3px rgba(15,23,42,0.05);--shadow-sm:0 4px 16px rgba(15,23,42,0.07);
+  --r-sm:10px;--r-md:16px;--r-lg:22px;--r-xl:28px;--r-pill:999px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text-primary);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(79,115,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(79,115,255,0.03) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;z-index:0;}
+.orb{position:fixed;border-radius:50%;filter:blur(70px);pointer-events:none;z-index:0;}
+.orb1{width:500px;height:500px;background:radial-gradient(circle,rgba(184,107,0,0.07) 0%,transparent 70%);top:-100px;right:-80px;animation:orbFloat 20s ease-in-out infinite;}
+.orb2{width:420px;height:420px;background:radial-gradient(circle,rgba(79,115,255,0.07) 0%,transparent 70%);bottom:-80px;left:-60px;animation:orbFloat 24s ease-in-out infinite;animation-delay:-12s;}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1);}33%{transform:translate(25px,-35px) scale(1.04);}66%{transform:translate(-15px,25px) scale(0.97);}}
+header{position:relative;z-index:10;padding:16px 28px;background:var(--surface-glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:14px;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#fff,var(--surface-2));border:1px solid var(--border-med);display:grid;place-items:center;box-shadow:var(--shadow-xs);}
+.logo-title{font-family:'Fraunces',serif;font-size:19px;font-weight:700;letter-spacing:-0.02em;}
+.logo-title em{font-style:italic;font-weight:300;color:var(--accent);}
+.back-link{margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--r-pill);border:1px solid var(--border-med);background:var(--surface-0);font-size:13px;font-weight:600;color:var(--text-tertiary);text-decoration:none;transition:all 0.15s;box-shadow:var(--shadow-xs);}
+.back-link:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);}
+.page{position:relative;z-index:10;max-width:1080px;margin:0 auto;padding:56px 28px 80px;}
+.hero{margin-bottom:56px;}
+.hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--warning);margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+.hero-eyebrow::before{content:'';width:24px;height:1px;background:var(--warning);}
+.hero-title{font-family:'Fraunces',serif;font-size:clamp(2rem,5vw,3.2rem);font-weight:700;line-height:1.08;letter-spacing:-0.03em;margin-bottom:16px;}
+.hero-title em{font-style:italic;font-weight:300;color:var(--warning);}
+.hero-desc{font-size:16px;color:var(--text-tertiary);max-width:580px;line-height:1.75;}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;}
+.pill{font-size:12px;font-weight:600;padding:5px 14px;border-radius:var(--r-pill);border:1px solid;font-family:'DM Mono',monospace;}
+.pill-orange{border-color:rgba(184,107,0,0.35);color:var(--warning);background:var(--warning-soft);}
+.pill-green{border-color:rgba(13,158,138,0.35);color:var(--accent-teal);background:var(--accent-teal-soft);}
+.pill-blue{border-color:rgba(79,115,255,0.35);color:var(--accent);background:var(--accent-soft);}
+section{margin-bottom:52px;}
+.section-label{font-size:10.5px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-muted);margin-bottom:20px;display:flex;align-items:center;gap:10px;}
+.section-label::before{content:'';width:16px;height:1px;background:var(--text-muted);}
+.section-title{font-family:'Fraunces',serif;font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px;}
+.section-sub{font-size:14px;color:var(--text-tertiary);line-height:1.7;margin-bottom:24px;}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+.card{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-lg);padding:22px;box-shadow:var(--shadow-xs);transition:transform 0.2s,box-shadow 0.2s,border-color 0.2s;}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-sm);border-color:var(--border-med);}
+.card-icon{font-size:24px;margin-bottom:12px;}
+.card-title{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-secondary);}
+.card-body{font-size:13px;color:var(--text-tertiary);line-height:1.7;}
+.deg-demo{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-xs);}
+.demo-bar{padding:12px 18px;background:var(--surface-2);border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:10px;}
+.demo-dot{width:8px;height:8px;border-radius:50%;background:var(--warning);animation:pulse 2.4s ease-in-out infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(184,107,0,0.5);}50%{box-shadow:0 0 0 5px rgba(184,107,0,0);}}
+.demo-bar span{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;}
+.demo-body{padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.deg-table{width:100%;border-collapse:collapse;font-size:13px;}
+.deg-table th{background:var(--surface-2);padding:9px 12px;text-align:left;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.08em;color:var(--text-muted);border:1px solid var(--border-light);font-weight:600;}
+.deg-table td{padding:9px 12px;border:1px solid var(--border-light);font-family:'DM Mono',monospace;}
+.deg-table .nv{color:var(--accent);font-weight:700;}
+.deg-table .dv{color:var(--warning);font-weight:700;}
+.deg-table tr:hover td{background:var(--surface-1);}
+.bar-chart-wrap{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-xs);}
+.bar-body{padding:20px;}
+.timeline{display:flex;flex-direction:column;gap:12px;}
+.timeline-item{display:flex;gap:14px;background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-md);padding:16px 18px;box-shadow:var(--shadow-xs);transition:transform 0.2s,border-color 0.2s;}
+.timeline-item:hover{transform:translateX(4px);border-color:var(--border-med);}
+.iter-badge{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-pill);background:var(--surface-2);border:1px solid var(--border-med);color:var(--text-muted);flex-shrink:0;align-self:flex-start;margin-top:2px;}
+.iter-badge.diff{background:var(--warning-soft);border-color:var(--warning-border);color:var(--warning);}
+.timeline-title{font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text-secondary);}
+.timeline-desc{font-size:13px;color:var(--text-tertiary);line-height:1.6;}
+.reading-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;}
+.reading-item{background:var(--surface-0);border:1px solid var(--border-light);border-radius:var(--r-md);padding:18px;text-align:center;box-shadow:var(--shadow-xs);transition:transform 0.2s,border-color 0.2s;}
+.reading-item:hover{transform:translateY(-3px);border-color:var(--border-med);}
+.reading-icon{font-size:24px;margin-bottom:10px;}
+.reading-title{font-size:13px;font-weight:700;margin-bottom:4px;}
+.reading-title.success{color:var(--success);}
+.reading-title.warning{color:var(--warning);}
+.reading-title.danger{color:var(--danger);}
+.reading-title.info{color:var(--accent);}
+.reading-desc{font-size:12px;color:var(--text-tertiary);line-height:1.5;}
+.fade-in{opacity:0;transform:translateY(18px);animation:fadeUp 0.55s ease both;}
+.fade-in:nth-child(1){animation-delay:0.05s}.fade-in:nth-child(2){animation-delay:0.1s}.fade-in:nth-child(3){animation-delay:0.15s}.fade-in:nth-child(4){animation-delay:0.2s}
+@keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border-med);border-radius:2px}
+@media(max-width:700px){.demo-body{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="6" cy="6" r="3" fill="#4f73ff" opacity="0.9"/>
+        <circle cx="14" cy="6" r="3" fill="#7c5cfc" opacity="0.9"/>
+        <circle cx="10" cy="14" r="3" fill="#0d9e8a" opacity="0.9"/>
+        <line x1="6" y1="6" x2="14" y2="6" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="6" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+        <line x1="14" y1="6" x2="10" y2="14" stroke="#9aa3bb" stroke-width="1.2"/>
+      </svg>
+    </div>
+    <div class="logo-title">Graph<em>Analyzer</em></div>
+  </div>
+  <a href="index.html" class="back-link">← Back to Analyzer</a>
+</header>
+
+<div class="page">
+  <div class="hero fade-in">
+    <div class="hero-eyebrow">03 / Output Explainer</div>
+    <h1 class="hero-title">Reading the <em>Analyzer</em><br>Results</h1>
+    <p class="hero-desc">A complete guide to interpreting node degrees, WL iteration color maps, and the first-difference iteration — the critical evidence for non-isomorphism.</p>
+    <div class="pills">
+      <span class="pill pill-orange">Node Degree</span>
+      <span class="pill pill-green">Color Convergence</span>
+      <span class="pill pill-blue">Differential Analysis</span>
+    </div>
+  </div>
+
+  <section class="fade-in">
+    <div class="section-label">Part 1 — Node Degree</div>
+    <h2 class="section-title">What Node Degree Tells You</h2>
+    <p class="section-sub">The degree of a node is the simplest and most fundamental structural invariant. It's the starting point of WL refinement.</p>
+    <div class="cards">
+      <div class="card"><div class="card-icon">📐</div><div class="card-title">Definition</div><div class="card-body">deg(v) = number of edges incident to v. In an undirected graph, this equals the count of v's neighbors. It's the 0-iteration WL color.</div></div>
+      <div class="card"><div class="card-icon">📊</div><div class="card-title">Degree Sequence</div><div class="card-body">The sorted list of all node degrees. Must be identical in both graphs for isomorphism to be possible. A mismatch is instant proof of non-isomorphism.</div></div>
+      <div class="card"><div class="card-icon">⚠️</div><div class="card-title">Anomalies</div><div class="card-body">Nodes with unique degrees (appear in only one graph) are highlighted in red in the degree table — they're strong structural indicators.</div></div>
+    </div>
+    <br>
+    <div class="deg-demo">
+      <div class="demo-bar"><div class="demo-dot"></div><span>INTERACTIVE / DEGREE DEMO</span></div>
+      <div class="demo-body">
+        <svg id="deg-svg" viewBox="0 0 240 200" style="width:100%;"></svg>
+        <table class="deg-table" id="deg-table">
+          <thead><tr><th>Node</th><th>Degree</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Part 2 — Degree Distribution</div>
+    <h2 class="section-title">Degree Histogram</h2>
+    <p class="section-sub">A histogram of degree values shows the overall connectivity profile. Skewed distributions often reveal scale-free or bipartite structure.</p>
+    <div class="bar-chart-wrap">
+      <div class="demo-bar"><div class="demo-dot" style="background:var(--accent-teal)"></div><span>DEGREE FREQUENCY HISTOGRAM</span></div>
+      <div class="bar-body"><svg id="bar-svg" style="width:100%;height:180px;"></svg></div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Part 3 — Iteration Differential</div>
+    <h2 class="section-title">Understanding Color Divergence</h2>
+    <p class="section-sub">The "first-difference iteration" is the most critical output — the earliest point where the two graphs produce different color partitions.</p>
+    <div class="timeline">
+      <div class="timeline-item">
+        <span class="iter-badge">ITER 0</span>
+        <div><div class="timeline-title">Initial coloring by degree</div><div class="timeline-desc">Both graphs assigned colors by node degree. If degree sequences differ here, they're immediately non-isomorphic.</div></div>
+      </div>
+      <div class="timeline-item">
+        <span class="iter-badge">ITER 1</span>
+        <div><div class="timeline-title">First neighborhood refinement</div><div class="timeline-desc">Each node's color updated with neighbor information. Local structure starts to differentiate nodes.</div></div>
+      </div>
+      <div class="timeline-item">
+        <span class="iter-badge diff">ITER 2 ⚡</span>
+        <div><div class="timeline-title">Divergence detected (example)</div><div class="timeline-desc">The first iteration where the two graphs produce different color class counts or distributions. This is the definitive evidence — the graphs cannot be isomorphic.</div></div>
+      </div>
+      <div class="timeline-item">
+        <span class="iter-badge">CONV</span>
+        <div><div class="timeline-title">Convergence — stable partition</div><div class="timeline-desc">Colors no longer change between iterations. The algorithm terminates and final certificates are compared.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="fade-in">
+    <div class="section-label">Quick Reference</div>
+    <h2 class="section-title">Color Coding Guide</h2>
+    <div class="reading-grid">
+      <div class="reading-item"><div class="reading-icon">✅</div><div class="reading-title success">Green Signal</div><div class="reading-desc">Check passed. Degree or WL certificate matches between both graphs.</div></div>
+      <div class="reading-item"><div class="reading-icon">❌</div><div class="reading-title danger">Red Signal</div><div class="reading-desc">Check failed. Definitive structural difference found. Graphs are NOT isomorphic.</div></div>
+      <div class="reading-item"><div class="reading-icon">⚠️</div><div class="reading-title warning">Amber Tab</div><div class="reading-desc">This iteration is where the graphs first diverge in color partition.</div></div>
+      <div class="reading-item"><div class="reading-icon">🔵</div><div class="reading-title info">Blue Node</div><div class="reading-desc">Node is color class 0. Graph nodes are colored by their current WL color class.</div></div>
+      <div class="reading-item"><div class="reading-icon">🔢</div><div class="reading-title info">Color Count</div><div class="reading-desc">Number of distinct color classes in the current partition. More colors = more discriminating.</div></div>
+      <div class="reading-item"><div class="reading-icon">⏸</div><div class="reading-title success">Convergence</div><div class="reading-desc">No new color classes added. WL partition is stable. Algorithm complete.</div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const PALETTE = ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#c94040','#2980b9'];
+const demoNodes = [{id:0,x:120,y:25},{id:1,x:40,y:80},{id:2,x:200,y:80},{id:3,x:25,y:155},{id:4,x:120,y:155},{id:5,x:215,y:155}];
+const demoEdges = [[0,1],[0,2],[1,2],[1,3],[2,4],[2,5],[3,4],[4,5]];
+const deg = {};
+demoEdges.forEach(([u,v])=>{deg[u]=(deg[u]||0)+1;deg[v]=(deg[v]||0)+1;});
+
+// Draw degree graph
+const svg = d3.select('#deg-svg');
+svg.selectAll('line').data(demoEdges).join('line')
+  .attr('x1',d=>demoNodes[d[0]].x).attr('y1',d=>demoNodes[d[0]].y)
+  .attr('x2',d=>demoNodes[d[1]].x).attr('y2',d=>demoNodes[d[1]].y)
+  .attr('stroke','rgba(148,163,184,0.4)').attr('stroke-width',1.8);
+const ng = svg.selectAll('g').data(demoNodes).join('g').attr('transform',d=>`translate(${d.x},${d.y})`);
+ng.append('circle').attr('r',0).attr('fill',d=>PALETTE[Math.min(deg[d.id]||0,5)])
+  .attr('stroke','white').attr('stroke-width',2.5)
+  .attr('filter','drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
+  .transition().delay((_,i)=>i*60).duration(400).ease(d3.easeBackOut).attr('r',15);
+ng.append('text').text(d=>d.id).attr('text-anchor','middle').attr('dy','0.35em')
+  .attr('fill','white').attr('font-family','DM Mono,monospace').attr('font-size','10').attr('font-weight','700').attr('pointer-events','none')
+  .style('opacity',0).transition().delay((_,i)=>i*60+200).duration(300).style('opacity',1);
+
+// Degree table
+const tbody = document.querySelector('#deg-table tbody');
+demoNodes.forEach(n=>{
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="nv">v${n.id}</td><td class="dv">${deg[n.id]||0}</td>`;
+  tbody.appendChild(tr);
+});
+
+// Bar chart
+const svg2 = d3.select('#bar-svg');
+const W = document.getElementById('bar-svg').getBoundingClientRect().width || 600;
+const H = 180;
+svg2.attr('viewBox',`0 0 ${W} ${H}`);
+const freqs = {};
+Object.values(deg).forEach(d=>freqs[d]=(freqs[d]||0)+1);
+const barData = Object.entries(freqs).sort((a,b)=>a[0]-b[0]).map(([d,c])=>({d:parseInt(d),c}));
+const pad={l:44,r:20,t:20,b:36};
+const bw=W-pad.l-pad.r, bh=H-pad.t-pad.b;
+const maxC = Math.max(...barData.map(d=>d.c));
+const barW = Math.min(55, bw/barData.length*0.65);
+const xStep = bw/barData.length;
+// Grid
+for(let i=0;i<=maxC;i++){
+  const y=pad.t+bh*(1-i/maxC);
+  svg2.append('line').attr('x1',pad.l).attr('y1',y).attr('x2',pad.l+bw).attr('y2',y).attr('stroke','rgba(180,192,220,0.3)').attr('stroke-width',1);
+  svg2.append('text').text(i).attr('x',pad.l-8).attr('y',y+4).attr('text-anchor','end').attr('fill','#9aa3bb').attr('font-family','DM Mono,monospace').attr('font-size','10');
+}
+svg2.append('line').attr('x1',pad.l).attr('y1',pad.t+bh).attr('x2',pad.l+bw).attr('y2',pad.t+bh).attr('stroke','rgba(180,192,220,0.6)').attr('stroke-width',1);
+barData.forEach((d,i)=>{
+  const x=pad.l+xStep*i+xStep/2-barW/2;
+  const bH=bh*(d.c/maxC);
+  const y=pad.t+bh-bH;
+  svg2.append('rect').attr('x',x).attr('y',pad.t+bh).attr('width',barW).attr('height',0).attr('rx',5).attr('fill',PALETTE[i%PALETTE.length]).attr('opacity',0.85)
+    .transition().duration(600).delay(i*100).attr('y',y).attr('height',bH);
+  svg2.append('text').text(`d=${d.d}`).attr('x',x+barW/2).attr('y',pad.t+bh+16).attr('text-anchor','middle').attr('fill','#9aa3bb').attr('font-family','DM Mono,monospace').attr('font-size','9');
+  svg2.append('text').text(d.c).attr('x',x+barW/2).attr('y',y-5).attr('text-anchor','middle').attr('fill',PALETTE[i%PALETTE.length]).attr('font-family','DM Mono,monospace').attr('font-size','11').attr('font-weight','700')
+    .style('opacity',0).transition().delay(i*100+400).duration(300).style('opacity',1);
+});
+</script>
+</body>
+</html>
