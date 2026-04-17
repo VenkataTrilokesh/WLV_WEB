@@ -1,8 +1,3 @@
-/* ============================================================
-   app.js — k-WL Graph Analyzer
-   Complete algorithm + D3 visualization + UI logic
-   ============================================================ */
-
 'use strict';
 
 // ---- STATE ------------------------------------------------
@@ -10,9 +5,9 @@ const state = {
   mode: 'single',
   k: 1,
   soundEnabled: true,
-  graphs: [],         // parsed graph objects
-  wlResults: [],      // per-graph WL color sequences
-  iterData: [],       // per-iteration snapshot
+  graphs: [],         
+  wlResults: [],      
+  iterData: [],      t
   currentIter: 0,
 };
 
@@ -93,7 +88,7 @@ function parseGraph(text) {
   if (firstParts.length >= 2 && !isNaN(firstParts[0]) && !isNaN(firstParts[1])) {
     n = firstParts[0]; m = firstParts[1]; edgeStart = 1;
   } else {
-    // Try to auto-detect: read all edges and infer n
+    
     edgeStart = 0; m = lines.length;
     n = 0;
   }
@@ -126,10 +121,10 @@ function runWL(graph, k, maxIter = 10) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Initial coloring: degree-based for richer start
+ 
   let colors = {};
   for (const node of nodes) {
-    colors[node] = adjacency[node].size; // degree as initial color
+    colors[node] = adjacency[node].size; 
   }
 
   const iterations = [{ ...colors }];
@@ -175,7 +170,7 @@ function runWL(graph, k, maxIter = 10) {
     const changed = nodes.some(nd => normalized[nd] !== colors[nd]);
 
     colors = normalized;
-    if (!changed) break; // stable
+    if (!changed) break; 
   }
 
   return iterations;
@@ -184,7 +179,7 @@ function runWL(graph, k, maxIter = 10) {
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
 function compareGraphs(iter1, iter2) {
   // Degree sequences
-  const deg1 = iter1[0]; // initial colors = degrees
+  const deg1 = iter1[0]; 
   const deg2 = iter2[0];
   const degSeq1 = Object.values(deg1).sort((a, b) => a - b);
   const degSeq2 = Object.values(deg2).sort((a, b) => a - b);
