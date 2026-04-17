@@ -122,97 +122,89 @@ function parseGraph(text) {
 }
 
 // ---- k-WL ALGORITHM ----------------------------------------
-function runWL(graph, k, maxIter = 10) {
+// sharedHashMap: optional shared Map so two graphs use the SAME colour IDs
+// for identical structural signatures — required for correct histogram comparison.
+function runWL(graph, k, maxIter = 10, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Initial coloring: degree-based for richer start
-  let colors = {};
-  for (const node of nodes) {
-    colors[node] = adjacency[node].size; // degree as initial color
-  }
+  // Use shared map when provided (compare mode), else local map
+  let hashCounter = sharedHashMap ? sharedHashMap.size : 0;
+  const hashMap = sharedHashMap || new Map();
 
-  const iterations = [{ ...colors }];
-  let hashCounter = 0;
-  const hashMap = new Map();
-
-  function hashColor(val) {
-    const key = String(val);
+  function getHash(key) {
     if (!hashMap.has(key)) hashMap.set(key, hashCounter++);
     return hashMap.get(key);
   }
 
-  // Normalize to compact integers
-  function normalizeColors(c) {
-    const vals = [...new Set(Object.values(c))].sort((a, b) => a - b);
-    const remap = {};
-    vals.forEach((v, i) => remap[v] = i);
-    const result = {};
-    for (const node of nodes) result[node] = remap[c[node]];
-    return result;
+  // Initial colouring: degree-based, stored via shared hash map
+  let colors = {};
+  for (const node of nodes) {
+    colors[node] = getHash(`deg:${adjacency[node].size}`);
   }
-
-  colors = normalizeColors(colors);
-  iterations[0] = { ...colors };
+  const iterations = [{ ...colors }];
 
   for (let iter = 0; iter < maxIter; iter++) {
     const newColors = {};
-
     for (const node of nodes) {
-      const neighborColors = [...adjacency[node]].map(nb => colors[nb]).sort((a, b) => a - b);
-      const signature = `${colors[node]}|${neighborColors.join(',')}`;
-      const key = String(signature);
-      if (!hashMap.has(key)) hashMap.set(key, hashCounter++);
-      newColors[node] = hashMap.get(key);
+      const neighborColors = [...adjacency[node]]
+        .map(nb => colors[nb])
+        .sort((a, b) => a - b);
+      const signature = `wl:${colors[node]}|${neighborColors.join(',')}`;
+      newColors[node] = getHash(signature);
     }
 
-    const normalized = normalizeColors(newColors);
-    iterations.push({ ...normalized });
+    iterations.push({ ...newColors });
 
-    // Check for convergence
-    const prevClasses = new Set(Object.values(colors)).size;
-    const newClasses = new Set(Object.values(normalized)).size;
-    const changed = nodes.some(nd => normalized[nd] !== colors[nd]);
-
-    colors = normalized;
-    if (!changed) break; // stable
+    const changed = nodes.some(nd => newColors[nd] !== colors[nd]);
+    colors = newColors;
+    if (!changed) break;
   }
 
   return iterations;
 }
 
-// ---- COMPARE TWO GRAPHS ------------------------------------ 
-function compareGraphs(iter1, iter2) {
-  // Degree sequences
-  const deg1 = iter1[0]; // initial colors = degrees
-  const deg2 = iter2[0];
-  const degSeq1 = Object.values(deg1).sort((a, b) => a - b);
-  const degSeq2 = Object.values(deg2).sort((a, b) => a - b);
-  const degMatch = degSeq1.length === degSeq2.length && degSeq1.every((v, i) => v === degSeq2[i]);
+// Build a canonical colour histogram string for a colour assignment.
+// Uses sorted (count:colourId) pairs so comparison is order-independent.
+function certificate(colors) {
+  const freq = {};
+  Object.values(colors).forEach(c => { freq[c] = (freq[c] || 0) + 1; });
+  return Object.entries(freq)
+    .map(([c, cnt]) => `${c}:${cnt}`)
+    .sort()
+    .join(',');
+}
 
-  // WL certificate comparison per iteration
-  const maxIter = Math.max(iter1.length, iter2.length);
-  const certificates1 = iter1.map(colors => {
-    const freq = {};
-    Object.values(colors).forEach(c => freq[c] = (freq[c] || 0) + 1);
-    return Object.entries(freq).sort().map(e => e.join(':')).join(',');
-  });
-  const certificates2 = iter2.map(colors => {
-    const freq = {};
-    Object.values(colors).forEach(c => freq[c] = (freq[c] || 0) + 1);
-    return Object.entries(freq).sort().map(e => e.join(':')).join(',');
-  });
+// ---- COMPARE TWO GRAPHS ------------------------------------ 
+function compareGraphs(g1, g2, k, maxIter = 10) {
+  // Run BOTH graphs through WL with a SHARED hash map so identical
+  // structural signatures always receive the same colour ID.
+  const sharedMap = new Map();
+  const iter1 = runWL(g1, k, maxIter, sharedMap);
+  const iter2 = runWL(g2, k, maxIter, sharedMap);
+
+  // Degree sequences (from raw adjacency, not WL colours)
+  const degSeq = (graph) =>
+    Array.from({ length: graph.n }, (_, i) => graph.adjacency[i].size).sort((a, b) => a - b);
+  const ds1 = degSeq(g1), ds2 = degSeq(g2);
+  const degMatch = ds1.length === ds2.length && ds1.every((v, i) => v === ds2[i]);
+
+  // Certificate comparison per iteration
+  const certs1 = iter1.map(certificate);
+  const certs2 = iter2.map(certificate);
 
   let firstDiff = -1;
-  for (let i = 0; i < Math.min(certificates1.length, certificates2.length); i++) {
-    if (certificates1[i] !== certificates2[i]) { firstDiff = i; break; }
+  for (let i = 0; i < Math.min(certs1.length, certs2.length); i++) {
+    if (certs1[i] !== certs2[i]) { firstDiff = i; break; }
   }
 
   const lastIter = Math.min(iter1.length, iter2.length) - 1;
-  const wlMatch = certificates1[lastIter] === certificates2[lastIter];
+  const wlMatch = certs1[lastIter] === certs2[lastIter];
   const isomorphic = degMatch && wlMatch;
 
-  return { isomorphic, degMatch, wlMatch, firstDiff, certificates1, certificates2 };
+  return { isomorphic, degMatch, wlMatch, firstDiff,
+           certificates1: certs1, certificates2: certs2,
+           iter1, iter2 };
 }
 
 // ---- D3 VISUALIZATION -------------------------------------- 
@@ -747,12 +739,16 @@ async function runAnalysis() {
     Progress.set('Running WL refinement…', 55);
     await delay(80);
 
-    const iter1 = runWL(g1, k);
-    let iter2 = null;
+    let iter1, iter2, compareResult;
+
     if (g2) {
       Progress.set('Comparing graphs…', 75);
       await delay(60);
-      iter2 = runWL(g2, k);
+      compareResult = compareGraphs(g1, g2, k);
+      iter1 = compareResult.iter1;
+      iter2 = compareResult.iter2;
+    } else {
+      iter1 = runWL(g1, k);
     }
 
     Progress.set('Building visualization…', 90);
@@ -760,7 +756,6 @@ async function runAnalysis() {
 
     const graphs = g2 ? [g1, g2] : [g1];
     const iterData = g2 ? [iter1, iter2] : [iter1];
-    const compareResult = g2 ? compareGraphs(iter1, iter2) : null;
 
     Progress.set('Complete!', 100);
     await delay(400);
