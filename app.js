@@ -407,7 +407,7 @@ function buildDegTable(container, graph, label) {
     const isAnomaly = degFreq[degrees[i]] === 1 && n > 3;
     row.innerHTML = `
       <span class="deg-node">v${i}</span>
-      <span class="deg-val${isAnomaly ? ' anomaly' : ''}">${degrees[i]} edge${degrees[i] !== 1 ? 's' : ''}</span>
+      <span class="deg-val${isAnomaly ? ' anomaly' : ''}">${degrees[i]}</span>
     `;
     body.appendChild(row);
   }
