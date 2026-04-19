@@ -904,7 +904,6 @@ function setupUpload(inputId, fnameId, zoneId) {
       input.files = dt.files;
       fname.textContent = file.name;
       zone.classList.add('loaded');
-      Audio.play('click');
     }
   });
 }
@@ -931,7 +930,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mode toggle
   document.getElementById('btn-single').addEventListener('click', () => {
-    Audio.play('click');
     state.mode = 'single';
     document.getElementById('btn-single').classList.add('active');
     document.getElementById('btn-compare').classList.remove('active');
@@ -939,7 +937,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btn-compare').addEventListener('click', () => {
-    Audio.play('click');
     state.mode = 'compare';
     document.getElementById('btn-compare').classList.add('active');
     document.getElementById('btn-single').classList.remove('active');
@@ -947,8 +944,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // k steppers — no input element, purely button-driven
-  document.getElementById('k-dec').addEventListener('click', () => { Audio.play('click'); setK(state.k - 1); });
-  document.getElementById('k-inc').addEventListener('click', () => { Audio.play('click'); setK(state.k + 1); });
+  document.getElementById('k-dec').addEventListener('click', () => {  setK(state.k - 1); });
+  document.getElementById('k-inc').addEventListener('click', () => {  setK(state.k + 1); });
 
   // File uploads
   setupUpload('file1', 'fname1', 'zone1');
@@ -959,7 +956,7 @@ document.addEventListener('DOMContentLoaded', () => {
   soundBtn.addEventListener('click', () => {
     state.soundEnabled = !state.soundEnabled;
     soundBtn.setAttribute('aria-pressed', String(state.soundEnabled));
-    if (state.soundEnabled) Audio.play('click');
+    if (state.soundEnabled)
   });
 
   // Run analysis
