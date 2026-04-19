@@ -1,7 +1,3 @@
-/* ============================================================
-   app.js — k-WL Graph Analyzer
-   Complete algorithm + D3 visualization + UI logic
-   ============================================================ */
 
 'use strict';
 
@@ -9,7 +5,7 @@
 const state = {
   mode: 'single',
   k: 1,
-  soundEnabled: true,
+  soundEnabled: false,
 };
 
 // ---- SAFE LIMITS for k-WL (n^k tuples) --------------------
@@ -24,53 +20,6 @@ const KWL_LIMITS = {
 function getMaxSafeN(k) {
   return KWL_LIMITS[k] ?? 10;
 }
-
-// ---- AUDIO ------------------------------------------------
-const Audio = (() => {
-  let ctx = null;
-  function getCtx() {
-    if (!ctx) {
-      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
-      catch (e) {}
-    }
-    return ctx;
-  }
-  function play(type) {
-    if (!state.soundEnabled) return;
-    try {
-      const c = getCtx();
-      if (!c) return;
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.connect(gain);
-      gain.connect(c.destination);
-      if (type === 'click') {
-        osc.frequency.setValueAtTime(520, c.currentTime);
-        gain.gain.setValueAtTime(0.04, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.08);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.08);
-      } else if (type === 'complete') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(440, c.currentTime);
-        osc.frequency.setValueAtTime(550, c.currentTime + 0.12);
-        osc.frequency.setValueAtTime(660, c.currentTime + 0.24);
-        gain.gain.setValueAtTime(0.05, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.5);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.5);
-      } else if (type === 'error') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(220, c.currentTime);
-        gain.gain.setValueAtTime(0.04, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.2);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.2);
-      }
-    } catch(e) {}
-  }
-  return { play };
-})();
 
 // ---- PROGRESS --------------------------------------------- 
 const Progress = {
@@ -911,14 +860,6 @@ async function runAnalysis() {
   }
 }
 
-// ---- K VALUE DISPLAY (replaces input[type=number]) ---------
-/*
-  FIX: The original code used a hidden <input type="number"> behind a
-  styled overlay. The native browser spinner arrows were invisible but
-  still intercepted wheel/keyboard events, silently changing the value
-  without updating the display. Replaced with a plain <div> display
-  driven entirely by the +/− buttons.
-*/
 function setK(val) {
   val = Math.max(1, Math.min(5, val));
   state.k = val;
@@ -937,13 +878,6 @@ function setK(val) {
   });
 }
 
-// ---- UPLOAD ZONE SETUP (FIX: label-based click forwarding) -
-/*
-  FIX: The original used an absolutely-positioned input covering the
-  zone. Child elements with z-index > 0 (icons, text) blocked the click
-  from reaching the input. Fixed by using a <label for="fileN"> that
-  covers the zone, with the input tucked away but still functional.
-*/
 function setupUpload(inputId, fnameId, zoneId) {
   const input = document.getElementById(inputId);
   const fname = document.getElementById(fnameId);
