@@ -490,6 +490,103 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 0 0 4px rgba(79, 115, 255, 0.1);
 }
 
+/* ------ k-WL SAFE LIMITS TABLE ---------------------------- */
+.kwl-limits-wrap {
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-light);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.kwl-limits-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface-2);
+}
+
+.kwl-limits-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.kwl-limits-table thead tr {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.kwl-limits-table th {
+  padding: 7px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: left;
+  background: var(--surface-2);
+}
+
+.kwl-limits-table td {
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(180, 192, 220, 0.18);
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  transition: background 0.15s;
+}
+
+.kwl-limits-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.kwl-limits-table tbody tr:hover td {
+  background: var(--surface-0);
+}
+
+/* Highlighted active row */
+.kwl-limits-table tbody tr.active-k td {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.kwl-limits-table tbody tr.active-k .k-badge {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.k-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  transition: background 0.2s, color 0.2s;
+}
+
+.tuple-col {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.kwl-limits-table tbody tr.active-k .tuple-col {
+  color: var(--accent-primary);
+  opacity: 0.8;
+}
+
 /* ------ UPLOAD ZONES -------------------------------------- */
 .upload-zone {
   position: relative;
@@ -1301,6 +1398,13 @@ a { color: inherit; text-decoration: none; }
   font-family: 'DM Mono', monospace;
 }
 
+/* k-WL chip in graph footer */
+.kwl-chip {
+  background: var(--accent-primary-soft);
+  border-color: rgba(79, 115, 255, 0.2);
+  color: var(--accent-primary);
+}
+
 /* ------ DEGREE TABLES ------------------------------------ */
 .tables-card {
   padding: 22px;
@@ -1400,6 +1504,115 @@ a { color: inherit; text-decoration: none; }
   color: var(--danger);
 }
 
+/* ------ k-WL SIZE ERROR CARD ------------------------------ */
+.kwl-error-card {
+  border-radius: var(--r-xl);
+  border: 1.5px solid var(--danger-border);
+  background:
+    radial-gradient(circle at top right, rgba(201, 64, 64, 0.06), transparent 40%),
+    linear-gradient(180deg, rgba(255,255,255,0.95), var(--danger-soft));
+  box-shadow: var(--shadow-sm);
+  padding: 28px 32px;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.kwl-error-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--danger-soft);
+  border: 1.5px solid var(--danger-border);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.kwl-error-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kwl-error-title {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--danger);
+}
+
+.kwl-error-main {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.kwl-error-detail {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-0);
+  border: 1px solid var(--border-light);
+  font-family: 'DM Mono', monospace;
+}
+
+.kwl-error-hint {
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid var(--border-light);
+}
+
+.kwl-error-hint strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+/* Inline limits table inside error card */
+.kwl-limits-mini {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.kwl-limits-mini th {
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.kwl-limits-mini td {
+  padding: 7px 8px;
+  color: var(--text-secondary);
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  border-bottom: 1px solid rgba(180, 192, 220, 0.15);
+}
+
+.kwl-limits-mini tbody tr:last-child td { border-bottom: 0; }
+
+.kwl-limits-mini tbody tr.active-k td {
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 700;
+}
+
 /* ------ TOOLTIP ------------------------------------------- */
 .tooltip {
   position: fixed;
@@ -1468,6 +1681,7 @@ a { color: inherit; text-decoration: none; }
   .tables-grid { grid-template-columns: 1fr; }
   .topbar-nav .nav-link { display: none; }
   .brand-title { font-size: 22px; }
+  .kwl-error-card { flex-direction: column; }
 }
 
 @media (max-width: 560px) {
