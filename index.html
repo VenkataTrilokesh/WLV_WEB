@@ -76,7 +76,7 @@
             </div>
           </div>
 
-          <!-- k-value -->
+          <!-- k-value + safe limits table -->
           <div class="field-block">
             <label class="field-label" for="k-input">Refinement Depth (k)</label>
             <div class="k-control">
@@ -87,7 +87,54 @@
               </div>
               <button class="k-stepper" id="k-inc" type="button" aria-label="Increase k">+</button>
             </div>
-            <p class="field-hint">Higher k = more discriminating power</p>
+            <p class="field-hint">Higher k = more discriminating power (true k-WL over k-tuples)</p>
+
+            <!-- Safe limits table -->
+            <div class="kwl-limits-wrap">
+              <div class="kwl-limits-label">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M6 5v4M6 3.5v.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+                Safe node limits per k
+              </div>
+              <table class="kwl-limits-table">
+                <thead>
+                  <tr>
+                    <th>k</th>
+                    <th>Max nodes</th>
+                    <th>Tuples</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-k="1" class="active-k">
+                    <td><span class="k-badge">1</span></td>
+                    <td>Unlimited</td>
+                    <td class="tuple-col">n</td>
+                  </tr>
+                  <tr data-k="2">
+                    <td><span class="k-badge">2</span></td>
+                    <td>≤ 500</td>
+                    <td class="tuple-col">n²</td>
+                  </tr>
+                  <tr data-k="3">
+                    <td><span class="k-badge">3</span></td>
+                    <td>≤ 100</td>
+                    <td class="tuple-col">n³</td>
+                  </tr>
+                  <tr data-k="4">
+                    <td><span class="k-badge">4</span></td>
+                    <td>≤ 30</td>
+                    <td class="tuple-col">n⁴</td>
+                  </tr>
+                  <tr data-k="5">
+                    <td><span class="k-badge">5</span></td>
+                    <td>≤ 15</td>
+                    <td class="tuple-col">n⁵</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- File upload -->
@@ -179,9 +226,9 @@
             </div>
             <div class="empty-copy">
               <h3>Ready to analyze</h3>
-              <p>Upload a graph file in .txt format and click <strong>Run Analysis</strong> to see WL color refinement, degree comparison, and the isomorphism verdict.</p>
+              <p>Upload a graph file in .txt format and click <strong>Run Analysis</strong> to see k-WL color refinement, degree comparison, and the isomorphism verdict.</p>
               <div class="empty-pills">
-                <span>Visual refinement</span>
+                <span>True k-WL refinement</span>
                 <span>Degree tables</span>
                 <span>Isomorphism verdict</span>
               </div>
