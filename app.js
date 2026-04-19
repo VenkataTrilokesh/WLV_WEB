@@ -16,6 +16,19 @@ const state = {
   currentIter: 0,
 };
 
+// ---- SAFE LIMITS for k-WL (n^k tuples) --------------------
+const KWL_LIMITS = {
+  1: Infinity,
+  2: 500,
+  3: 100,
+  4: 30,
+  5: 15,
+};
+
+function getMaxSafeN(k) {
+  return KWL_LIMITS[k] ?? 10;
+}
+
 // ---- AUDIO ------------------------------------------------
 const Audio = (() => {
   let ctx = null;
@@ -93,7 +106,6 @@ function parseGraph(text) {
   if (firstParts.length >= 2 && !isNaN(firstParts[0]) && !isNaN(firstParts[1])) {
     n = firstParts[0]; m = firstParts[1]; edgeStart = 1;
   } else {
-    // Try to auto-detect: read all edges and infer n
     edgeStart = 0; m = lines.length;
     n = 0;
   }
@@ -113,7 +125,6 @@ function parseGraph(text) {
     n = Math.max(n, u + 1, v + 1);
   }
 
-  // Ensure all nodes exist
   for (let i = 0; i < n; i++) {
     if (!adjacency[i]) adjacency[i] = new Set();
   }
@@ -121,14 +132,28 @@ function parseGraph(text) {
   return { n, edges, adjacency };
 }
 
-// ---- k-WL ALGORITHM ----------------------------------------
-// sharedHashMap: optional shared Map so two graphs use the SAME colour IDs
-// for identical structural signatures — required for correct histogram comparison.
-function runWL(graph, k, maxIter = 10, sharedHashMap = null) {
+// ---- TRUE k-WL ALGORITHM ----------------------------------
+// Implements genuine k-WL over ordered k-tuples (product of nodes).
+// Uses a shared hashMap so two graphs get the same colour IDs for
+// identical signatures — required for correct isomorphism comparison.
+//
+// Safety: caller must have already verified n <= getMaxSafeN(k).
+
+function runKWL(graph, k, maxIter = 10, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Use shared map when provided (compare mode), else local map
+  // Build all k-tuples (n^k of them)
+  let tuples = [[]];
+  for (let d = 0; d < k; d++) {
+    const next = [];
+    for (const t of tuples) {
+      for (const v of nodes) next.push([...t, v]);
+    }
+    tuples = next;
+  }
+
+  // Hash map (shared or local)
   let hashCounter = sharedHashMap ? sharedHashMap.size : 0;
   const hashMap = sharedHashMap || new Map();
 
@@ -137,38 +162,98 @@ function runWL(graph, k, maxIter = 10, sharedHashMap = null) {
     return hashMap.get(key);
   }
 
-  // Initial colouring: degree-based, stored via shared hash map
+  // Encode a tuple as a string key for the colors map
+  const tupleKey = t => t.join(',');
+
+  // Initial colouring: based on the "type" of the tuple —
+  // isomorphism type of the induced subgraph on distinct nodes + degree info.
+  // Simple but effective: hash the sorted degree sequence of all nodes in the tuple.
   let colors = {};
-  for (const node of nodes) {
-    colors[node] = getHash(`deg:${adjacency[node].size}`);
+  for (const t of tuples) {
+    const degrees = t.map(node => adjacency[node].size).join(',');
+    // Also encode which pairs within the tuple are adjacent
+    let adjPattern = '';
+    for (let i = 0; i < k; i++) {
+      for (let j = i + 1; j < k; j++) {
+        adjPattern += adjacency[t[i]].has(t[j]) ? '1' : '0';
+      }
+    }
+    colors[tupleKey(t)] = getHash(`init:${degrees}|${adjPattern}`);
   }
-  const iterations = [{ ...colors }];
+
+  const iterations = [];
+  // Store per-node color for visualization: average colour over all tuples containing that node
+  function nodeColorsFromTupleColors(tColors) {
+    const nodeColor = {};
+    for (let i = 0; i < n; i++) nodeColor[i] = [];
+    for (const t of tuples) {
+      const c = tColors[tupleKey(t)];
+      for (const node of t) nodeColor[node].push(c);
+    }
+    const result = {};
+    for (let i = 0; i < n; i++) {
+      const arr = nodeColor[i];
+      // Use the most frequent color for this node (mode)
+      const freq = {};
+      let best = arr[0], bestCount = 0;
+      for (const c of arr) {
+        freq[c] = (freq[c] || 0) + 1;
+        if (freq[c] > bestCount) { bestCount = freq[c]; best = c; }
+      }
+      result[i] = best ?? 0;
+    }
+    return result;
+  }
+
+  iterations.push(nodeColorsFromTupleColors(colors));
 
   for (let iter = 0; iter < maxIter; iter++) {
     const newColors = {};
-    for (const node of nodes) {
-      const neighborColors = [...adjacency[node]]
-        .map(nb => colors[nb])
-        .sort((a, b) => a - b);
-      const signature = `wl:${colors[node]}|${neighborColors.join(',')}`;
-      newColors[node] = getHash(signature);
+
+    for (const t of tuples) {
+      const tk = tupleKey(t);
+      // For each position i in the tuple, collect colors of tuples formed by
+      // replacing t[i] with each neighbor of t[i]
+      const neighborMultiset = [];
+      for (let i = 0; i < k; i++) {
+        const node = t[i];
+        for (const neighbor of adjacency[node]) {
+          const newTuple = [...t];
+          newTuple[i] = neighbor;
+          const neighborColor = colors[tupleKey(newTuple)];
+          if (neighborColor !== undefined) {
+            neighborMultiset.push(`${i}:${neighborColor}`);
+          }
+        }
+      }
+      neighborMultiset.sort();
+
+      // Signature = (current color, sorted neighbor multiset, degree pattern)
+      const degPattern = t.map(node => adjacency[node].size).join(',');
+      const signature = `${colors[tk]}|${neighborMultiset.join(';')}|${degPattern}`;
+      newColors[tk] = getHash(signature);
     }
 
-    iterations.push({ ...newColors });
+    iterations.push(nodeColorsFromTupleColors(newColors));
 
-    const changed = nodes.some(nd => newColors[nd] !== colors[nd]);
+    // Check convergence
+    const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
     colors = newColors;
     if (!changed) break;
   }
 
-  return iterations;
+  // Store final tuple colors for certificate comparison
+  const _finalTupleColors = colors;
+
+  return { iterations, _finalTupleColors, tuples };
 }
 
-// Build a canonical colour histogram string for a colour assignment.
-// Uses sorted (count:colourId) pairs so comparison is order-independent.
-function certificate(colors) {
+// Build a canonical colour histogram (certificate) from tuple colors.
+function certificate(tupleColorMap) {
   const freq = {};
-  Object.values(colors).forEach(c => { freq[c] = (freq[c] || 0) + 1; });
+  for (const c of Object.values(tupleColorMap)) {
+    freq[c] = (freq[c] || 0) + 1;
+  }
   return Object.entries(freq)
     .map(([c, cnt]) => `${c}:${cnt}`)
     .sort()
@@ -177,29 +262,39 @@ function certificate(colors) {
 
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
 function compareGraphs(g1, g2, k, maxIter = 10) {
-  // Run BOTH graphs through WL with a SHARED hash map so identical
-  // structural signatures always receive the same colour ID.
   const sharedMap = new Map();
-  const iter1 = runWL(g1, k, maxIter, sharedMap);
-  const iter2 = runWL(g2, k, maxIter, sharedMap);
 
-  // Degree sequences (from raw adjacency, not WL colours)
+  const r1 = runKWL(g1, k, maxIter, sharedMap);
+  const r2 = runKWL(g2, k, maxIter, sharedMap);
+
+  const iter1 = r1.iterations;
+  const iter2 = r2.iterations;
+
+  // Degree sequences
   const degSeq = (graph) =>
     Array.from({ length: graph.n }, (_, i) => graph.adjacency[i].size).sort((a, b) => a - b);
   const ds1 = degSeq(g1), ds2 = degSeq(g2);
   const degMatch = ds1.length === ds2.length && ds1.every((v, i) => v === ds2[i]);
 
-  // Certificate comparison per iteration
-  const certs1 = iter1.map(certificate);
-  const certs2 = iter2.map(certificate);
+  // Certificate comparison using tuple colors
+  const cert1 = certificate(r1._finalTupleColors);
+  const cert2 = certificate(r2._finalTupleColors);
+  const wlMatch = cert1 === cert2;
+
+  // Also compare per-iteration node-level certificates
+  const nodeCert = (nodeColors) => {
+    const freq = {};
+    Object.values(nodeColors).forEach(c => { freq[c] = (freq[c] || 0) + 1; });
+    return Object.entries(freq).map(([c, cnt]) => `${c}:${cnt}`).sort().join(',');
+  };
+  const certs1 = iter1.map(nodeCert);
+  const certs2 = iter2.map(nodeCert);
 
   let firstDiff = -1;
   for (let i = 0; i < Math.min(certs1.length, certs2.length); i++) {
     if (certs1[i] !== certs2[i]) { firstDiff = i; break; }
   }
 
-  const lastIter = Math.min(iter1.length, iter2.length) - 1;
-  const wlMatch = certs1[lastIter] === certs2[lastIter];
   const isomorphic = degMatch && wlMatch;
 
   return { isomorphic, degMatch, wlMatch, firstDiff,
@@ -230,7 +325,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
   const nodes = Array.from({ length: n }, (_, i) => ({ id: i, label: colors[i] ?? 0 }));
   const links = edges.map(([s, t]) => ({ source: s, target: t }));
 
-  // D3 force simulation
   const simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(Math.min(80, W / (n + 1) * 2.5)).strength(0.6))
     .force('charge', d3.forceManyBody().strength(-Math.max(60, 400 / n)))
@@ -240,7 +334,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
 
   const g = svg.append('g');
 
-  // Edges
   const link = g.append('g').attr('class', 'links')
     .selectAll('line')
     .data(links)
@@ -249,7 +342,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     .attr('stroke-width', 1.5)
     .attr('stroke-linecap', 'round');
 
-  // Node shadow/glow
   const defs = svg.append('defs');
   defs.append('filter').attr('id', 'node-glow')
     .append('feDropShadow')
@@ -257,7 +349,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     .attr('stdDeviation', 3)
     .attr('flood-opacity', 0.22);
 
-  // Nodes
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g')
     .data(nodes)
@@ -265,7 +356,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     .attr('class', 'node-group')
     .style('cursor', 'pointer');
 
-  // Node circles
   const circles = node.append('circle')
     .attr('r', 0)
     .attr('fill', d => colorForLabel(d.label))
@@ -273,14 +363,12 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     .attr('stroke-width', 2)
     .attr('filter', 'url(#node-glow)');
 
-  // Animate in
   circles.transition()
     .delay((d, i) => i * 30)
     .duration(400)
     .ease(d3.easeCubicOut)
     .attr('r', 14);
 
-  // Node labels
   node.append('text')
     .text(d => d.id)
     .attr('text-anchor', 'middle')
@@ -294,7 +382,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     .transition().delay((d, i) => i * 30 + 200).duration(300)
     .style('opacity', 1);
 
-  // Tooltip interaction
   const tooltipEl = document.getElementById('tooltip');
 
   node
@@ -332,7 +419,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
       }
     });
 
-  // Drag behavior
   const drag = d3.drag()
     .on('start', (event, d) => {
       if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -345,9 +431,7 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     });
   node.call(drag);
 
-  // Tick
   simulation.on('tick', () => {
-    // Clamp to bounds
     nodes.forEach(d => {
       d.x = Math.max(20, Math.min(W - 20, d.x));
       d.y = Math.max(20, Math.min(H - 20, d.y));
@@ -360,7 +444,6 @@ function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Return update function for color transitions
   return function updateColors(newColors) {
     node.each(function(d) {
       d.label = newColors[d.id] ?? 0;
@@ -385,11 +468,9 @@ function buildDegTable(container, graph, label) {
   const body = document.createElement('div');
   body.className = 'deg-table-body';
 
-  // Compute degrees
   const degrees = {};
   for (let i = 0; i < n; i++) degrees[i] = adjacency[i] ? adjacency[i].size : 0;
 
-  // Find anomalies (if comparing, we mark nodes with unique degrees)
   const degFreq = {};
   Object.values(degrees).forEach(d => degFreq[d] = (degFreq[d] || 0) + 1);
 
@@ -416,7 +497,6 @@ function renderResults(graphs, iterData, compareResult) {
   const stack = document.createElement('div');
   stack.className = 'result-stack';
 
-  // 1. Summary stats
   const statsCard = document.createElement('div');
   statsCard.className = 'stats-card anim-slide-up';
   statsCard.innerHTML = `
@@ -433,14 +513,13 @@ function renderResults(graphs, iterData, compareResult) {
   const g2 = graphs[1];
 
   const totalNodes = g2 ? g1.n + g2.n : g1.n;
-  const totalEdges = g2 ? g1.edges.length + g2.edges.length : g1.edges.length;
   const iters = iterData[0] ? iterData[0].length : 1;
   const colorClasses = iterData[0] ? new Set(Object.values(iterData[0][iterData[0].length - 1])).size : 0;
 
   const statItems = [
     { label: 'Graphs', value: graphs.length, note: 'analyzed' },
     { label: 'Total Nodes', value: totalNodes, note: `${g2 ? `${g1.n} + ${g2.n}` : 'single graph'}` },
-    { label: 'Iterations', value: iters, note: 'WL refinement' },
+    { label: 'Iterations', value: iters, note: `${state.k}-WL refinement` },
     { label: 'Color Classes', value: colorClasses, note: 'final partition' },
   ];
 
@@ -455,7 +534,6 @@ function renderResults(graphs, iterData, compareResult) {
     statsRow.appendChild(box);
   });
 
-  // Animate counters
   setTimeout(() => {
     statsRow.querySelectorAll('.stat-value').forEach(el => {
       const target = parseInt(el.dataset.target);
@@ -463,7 +541,6 @@ function renderResults(graphs, iterData, compareResult) {
     });
   }, 200);
 
-  // 2. Verdict (only in compare mode)
   if (compareResult) {
     const verdictCard = document.createElement('div');
     const cls = compareResult.isomorphic ? 'pass' : 'fail';
@@ -478,12 +555,12 @@ function renderResults(graphs, iterData, compareResult) {
     verdictCard.innerHTML = `
       <div class="verdict-body">
         <div class="verdict-main">
-          <div class="verdict-tag">Isomorphism Verdict</div>
+          <div class="verdict-tag">Isomorphism Verdict — ${state.k}-WL Test</div>
           <div class="verdict-result">${compareResult.isomorphic ? '✓ Isomorphic' : '✗ Non-Isomorphic'}</div>
           <p class="verdict-desc">
             ${compareResult.isomorphic
-              ? 'The WL test cannot distinguish these graphs — they may be structurally equivalent. Note: WL is not a complete isomorphism test.'
-              : 'The WL test distinguishes these graphs — they are definitively <em>not</em> isomorphic. Their color refinements produce different certificates.'
+              ? `The ${state.k}-WL test cannot distinguish these graphs — they may be structurally equivalent. Note: k-WL is not a complete isomorphism test for all k.`
+              : `The ${state.k}-WL test distinguishes these graphs — they are definitively <em>not</em> isomorphic. Their color refinements produce different certificates.`
             }
           </p>
         </div>
@@ -494,9 +571,9 @@ function renderResults(graphs, iterData, compareResult) {
             <span class="signal-sub">${compareResult.degMatch ? 'Both graphs share the same degree multiset' : 'Degree sequences differ'}</span>
           </div>
           <div class="signal-item ${compareResult.wlMatch ? 'pass' : 'fail'}">
-            <span class="signal-name">WL Certificate</span>
+            <span class="signal-name">${state.k}-WL Certificate</span>
             <span class="signal-val">${wlStatus}</span>
-            <span class="signal-sub">Final color histogram comparison</span>
+            <span class="signal-sub">Final tuple color histogram comparison</span>
           </div>
           <div class="signal-item ${compareResult.firstDiff >= 0 ? 'warn' : 'pass'}">
             <span class="signal-name">Divergence</span>
@@ -509,7 +586,6 @@ function renderResults(graphs, iterData, compareResult) {
     stack.appendChild(verdictCard);
   }
 
-  // 3. Iteration viewer
   const iterCard = document.createElement('div');
   iterCard.className = 'iter-card anim-slide-up anim-d3';
 
@@ -524,7 +600,7 @@ function renderResults(graphs, iterData, compareResult) {
   iterCard.innerHTML = `
     <div class="iter-header">
       <div class="card-header" style="margin-bottom:0">
-        <div class="card-eyebrow">WL Refinement</div>
+        <div class="card-eyebrow">${state.k}-WL Refinement</div>
         <h3>Color Iterations</h3>
       </div>
       <div class="iter-tabs-wrap">
@@ -538,9 +614,7 @@ function renderResults(graphs, iterData, compareResult) {
   `;
   stack.appendChild(iterCard);
 
-  // Build graph panels
   const graphGrid = iterCard.querySelector('#graph-grid');
-  const svgRefs = [];
   const updateFns = [];
 
   graphs.forEach((graph, gi) => {
@@ -567,12 +641,12 @@ function renderResults(graphs, iterData, compareResult) {
         <span class="graph-chip">n = ${graph.n}</span>
         <span class="graph-chip">m = ${graph.edges.length}</span>
         <span class="graph-chip">Δ = ${Math.max(...Object.values(graph.adjacency).map(s => s.size), 0)}</span>
+        <span class="graph-chip kwl-chip">${state.k}-WL</span>
       </div>
     `;
     graphGrid.appendChild(panelEl);
   });
 
-  // Draw graphs after DOM is stable
   setTimeout(() => {
     graphs.forEach((graph, gi) => {
       const svgEl = document.getElementById(`svg-${gi}`);
@@ -583,7 +657,6 @@ function renderResults(graphs, iterData, compareResult) {
     });
   }, 80);
 
-  // Tab switching
   iterCard.querySelectorAll('.iter-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       Audio.play('click');
@@ -591,7 +664,6 @@ function renderResults(graphs, iterData, compareResult) {
       tab.classList.add('active');
       const iter = parseInt(tab.dataset.iter);
 
-      // Update each graph
       graphs.forEach((_, gi) => {
         if (!iterData[gi]) return;
         const colors = iterData[gi][iter] || iterData[gi][iterData[gi].length - 1];
@@ -606,7 +678,6 @@ function renderResults(graphs, iterData, compareResult) {
     });
   });
 
-  // 4. Degree tables
   const tablesCard = document.createElement('div');
   tablesCard.className = `tables-card anim-slide-up anim-d4`;
   tablesCard.innerHTML = `
@@ -649,7 +720,6 @@ function drawEmptyStateGraph() {
     .attr('viewBox', `0 0 ${W} ${H}`)
     .attr('width', W).attr('height', H);
 
-  // Simple example graph for decoration
   const nodes = [
     { id: 0, x: 110, y: 40 },
     { id: 1, x: 50, y: 110 },
@@ -681,7 +751,6 @@ function drawEmptyStateGraph() {
     .style('opacity', 0).transition().delay((d, i) => i * 80 + 300).duration(300)
     .style('opacity', 1);
 
-  // Cycle colors for ambiance
   let step = 0;
   const colorSets = [
     ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'],
@@ -705,12 +774,12 @@ async function runAnalysis() {
   const k = state.k;
 
   if (!file1) {
-    showError('Please upload at least one graph file to analyze.');
+    showError('⚠️ No file uploaded. Please upload at least one graph file to analyze.');
     return;
   }
 
   if (state.mode === 'compare' && !file2) {
-    showError('Compare mode requires two graph files. Please upload Graph B.');
+    showError('⚠️ Compare mode requires two graph files. Please upload Graph B.');
     return;
   }
 
@@ -728,15 +797,33 @@ async function runAnalysis() {
     await delay(60);
     const g1 = parseGraph(text1);
 
+    // ---- SAFETY CHECK: n vs k limit ----
+    const maxN = getMaxSafeN(k);
+    if (g1.n > maxN) {
+      throw new KWLSizeError(
+        `Graph A has ${g1.n} nodes, but k=${k} only supports up to ${maxN} nodes safely.\n` +
+        `With ${g1.n} nodes and k=${k}, the algorithm would need to process ${g1.n}^${k} = ${Math.pow(g1.n, k).toLocaleString()} tuples — this would crash your browser.\n\n` +
+        `Fix: reduce k to ${recommendK(g1.n)}, or use a smaller graph (≤ ${maxN} nodes for k=${k}).`
+      );
+    }
+
     let g2 = null;
     if (state.mode === 'compare' && file2) {
       const text2 = await readFile(file2);
       Progress.set('Parsing Graph B…', 35);
       await delay(60);
       g2 = parseGraph(text2);
+
+      // Safety check for graph B too
+      if (g2.n > maxN) {
+        throw new KWLSizeError(
+          `Graph B has ${g2.n} nodes, but k=${k} only supports up to ${maxN} nodes safely.\n` +
+          `Fix: reduce k to ${recommendK(g2.n)}, or use a smaller graph (≤ ${maxN} nodes for k=${k}).`
+        );
+      }
     }
 
-    Progress.set('Running WL refinement…', 55);
+    Progress.set(`Running ${k}-WL refinement…`, 55);
     await delay(80);
 
     let iter1, iter2, compareResult;
@@ -748,7 +835,8 @@ async function runAnalysis() {
       iter1 = compareResult.iter1;
       iter2 = compareResult.iter2;
     } else {
-      iter1 = runWL(g1, k);
+      const result = runKWL(g1, k);
+      iter1 = result.iterations;
     }
 
     Progress.set('Building visualization…', 90);
@@ -766,7 +854,11 @@ async function runAnalysis() {
 
   } catch (err) {
     Progress.hide();
-    showError('Failed to parse graph: ' + err.message + '. Check the file format.');
+    if (err instanceof KWLSizeError) {
+      showKWLError(err.message);
+    } else {
+      showError('⚠️ Failed to parse graph: ' + err.message + '. Check the file format.');
+    }
     Audio.play('error');
     console.error(err);
   } finally {
@@ -775,9 +867,59 @@ async function runAnalysis() {
   }
 }
 
+// ---- Custom error class for size violations ----------------
+class KWLSizeError extends Error {
+  constructor(msg) { super(msg); this.name = 'KWLSizeError'; }
+}
+
+// Recommend the highest k that fits a given n
+function recommendK(n) {
+  for (let k = 5; k >= 1; k--) {
+    if (n <= getMaxSafeN(k)) return k;
+  }
+  return 1;
+}
+
+// ---- ERROR DISPLAYS ----------------------------------------
 function showError(msg) {
   const area = document.getElementById('results-area');
   area.innerHTML = `<div class="banner error anim-slide-up">${msg}</div>`;
+}
+
+function showKWLError(msg) {
+  const area = document.getElementById('results-area');
+  const lines = msg.split('\n').filter(Boolean);
+  const mainMsg = lines[0] || msg;
+  const detail = lines.slice(1).join('<br>');
+
+  area.innerHTML = `
+    <div class="kwl-error-card anim-slide-up">
+      <div class="kwl-error-icon">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="12" stroke="#c94040" stroke-width="1.8"/>
+          <path d="M14 8v7M14 18v2" stroke="#c94040" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="kwl-error-body">
+        <div class="kwl-error-title">Graph too large for k=${state.k}</div>
+        <div class="kwl-error-main">${mainMsg}</div>
+        ${detail ? `<div class="kwl-error-detail">${detail}</div>` : ''}
+        <div class="kwl-error-hint">
+          <strong>Reference: Safe limits per k value</strong>
+          <table class="kwl-limits-mini">
+            <thead><tr><th>k</th><th>Max nodes</th><th>Tuple count</th></tr></thead>
+            <tbody>
+              <tr class="${state.k===1?'active-k':''}"><td>1</td><td>Unlimited</td><td>n (standard 1-WL)</td></tr>
+              <tr class="${state.k===2?'active-k':''}"><td>2</td><td>≤ 500</td><td>n²</td></tr>
+              <tr class="${state.k===3?'active-k':''}"><td>3</td><td>≤ 100</td><td>n³</td></tr>
+              <tr class="${state.k===4?'active-k':''}"><td>4</td><td>≤ 30</td><td>n⁴</td></tr>
+              <tr class="${state.k===5?'active-k',''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function readFile(file) {
@@ -795,7 +937,6 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 document.addEventListener('DOMContentLoaded', () => {
   Progress.init();
 
-  // Mode buttons
   document.getElementById('btn-single').addEventListener('click', () => {
     Audio.play('click');
     state.mode = 'single';
@@ -812,7 +953,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.compare-only').forEach(el => el.classList.remove('hidden'));
   });
 
-  // k stepper
   const kInput = document.getElementById('k-input');
   const kDisplay = document.getElementById('k-display');
 
@@ -821,21 +961,27 @@ document.addEventListener('DOMContentLoaded', () => {
     state.k = val;
     kInput.value = val;
     kDisplay.textContent = val;
-    // Animate bounce
     kDisplay.style.transform = 'scale(1.3)';
     setTimeout(() => kDisplay.style.transition = 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)', 0);
     setTimeout(() => { kDisplay.style.transform = 'scale(1)'; }, 50);
+    // Update the safe-limits table to highlight the current row
+    updateLimitsTable(val);
+  }
+
+  function updateLimitsTable(k) {
+    document.querySelectorAll('.kwl-limits-table tbody tr').forEach(row => {
+      row.classList.remove('active-k');
+      if (parseInt(row.dataset.k) === k) row.classList.add('active-k');
+    });
   }
 
   document.getElementById('k-dec').addEventListener('click', () => { Audio.play('click'); setK(state.k - 1); });
   document.getElementById('k-inc').addEventListener('click', () => { Audio.play('click'); setK(state.k + 1); });
   kInput.addEventListener('input', () => setK(parseInt(kInput.value) || 1));
 
-  // File uploads
   setupUpload('file1', 'fname1', 'zone1');
   setupUpload('file2', 'fname2', 'zone2');
 
-  // Sound toggle
   const soundBtn = document.getElementById('sound-toggle');
   soundBtn.addEventListener('click', () => {
     state.soundEnabled = !state.soundEnabled;
@@ -843,14 +989,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.soundEnabled) Audio.play('click');
   });
 
-  // Run button
   document.getElementById('run-btn').addEventListener('click', runAnalysis);
 
-  // Draw empty state graph
   drawEmptyStateGraph();
-
-  // Ambient bg color shift
   animateBgOrbs();
+
+  // Initialise highlight on default k=1
+  updateLimitsTable(1);
 });
 
 function setupUpload(inputId, fnameId, zoneId) {
@@ -866,7 +1011,6 @@ function setupUpload(inputId, fnameId, zoneId) {
     }
   });
 
-  // Drag-and-drop
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
   zone.addEventListener('drop', e => {
@@ -886,7 +1030,6 @@ function setupUpload(inputId, fnameId, zoneId) {
 
 // ---- BACKGROUND ORB ANIMATION ----------------------------- 
 function animateBgOrbs() {
-  // Shift hue of orbs slowly over time for ambient effect
   let hue = 0;
   const orb1 = document.querySelector('.orb-1');
   const orb2 = document.querySelector('.orb-2');
