@@ -1,3 +1,7 @@
+/* ============================================================
+   app.js — k-WL Graph Analyzer
+   Complete algorithm + D3 visualization + UI logic
+   ============================================================ */
 
 'use strict';
 
@@ -5,7 +9,11 @@
 const state = {
   mode: 'single',
   k: 1,
-  soundEnabled: false,
+  soundEnabled: true,
+  graphs: [],         // parsed graph objects
+  wlResults: [],      // per-graph WL color sequences
+  iterData: [],       // per-iteration snapshot
+  currentIter: 0,
 };
 
 // ---- SAFE LIMITS for k-WL (n^k tuples) --------------------
@@ -21,6 +29,49 @@ function getMaxSafeN(k) {
   return KWL_LIMITS[k] ?? 10;
 }
 
+// ---- AUDIO ------------------------------------------------
+const Audio = (() => {
+  let ctx = null;
+  function getCtx() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return ctx;
+  }
+  function play(type) {
+    if (!state.soundEnabled) return;
+    try {
+      const c = getCtx();
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.connect(gain);
+      gain.connect(c.destination);
+      if (type === 'click') {
+        osc.frequency.setValueAtTime(520, c.currentTime);
+        gain.gain.setValueAtTime(0.04, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.08);
+        osc.start(c.currentTime);
+        osc.stop(c.currentTime + 0.08);
+      } else if (type === 'complete') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, c.currentTime);
+        osc.frequency.setValueAtTime(550, c.currentTime + 0.12);
+        osc.frequency.setValueAtTime(660, c.currentTime + 0.24);
+        gain.gain.setValueAtTime(0.05, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.5);
+        osc.start(c.currentTime);
+        osc.stop(c.currentTime + 0.5);
+      } else if (type === 'error') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, c.currentTime);
+        gain.gain.setValueAtTime(0.04, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.2);
+        osc.start(c.currentTime);
+        osc.stop(c.currentTime + 0.2);
+      }
+    } catch(e) {}
+  }
+  return { play };
+})();
+
 // ---- PROGRESS --------------------------------------------- 
 const Progress = {
   el: null, bar: null, label: null, pct: null,
@@ -35,7 +86,7 @@ const Progress = {
     this.set(text, val);
   },
   set(text, val) {
-    if (text)     this.label.textContent = text;
+    if (text)  this.label.textContent = text;
     if (val != null) {
       this.bar.style.width = val + '%';
       this.pct.textContent = val + '%';
@@ -46,34 +97,26 @@ const Progress = {
 
 // ---- GRAPH PARSING ----------------------------------------
 function parseGraph(text) {
-  const lines = text.trim()
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('#') && !l.startsWith('%'));
-
+  const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   if (!lines.length) throw new Error('Empty file');
+
+  const firstParts = lines[0].split(/\s+/).map(Number);
+  let n, m, edgeStart;
+
+  if (firstParts.length >= 2 && !isNaN(firstParts[0]) && !isNaN(firstParts[1])) {
+    n = firstParts[0]; m = firstParts[1]; edgeStart = 1;
+  } else {
+    edgeStart = 0; m = lines.length;
+    n = 0;
+  }
 
   const adjacency = {};
   const edges = [];
-  let n = 0;
-  let edgeStart = 0;
-
-  // Detect optional "n m" header (exactly 2 positive integers on first line)
-  const firstParts = lines[0].split(/\s+/).map(Number);
-  if (
-    firstParts.length === 2 &&
-    Number.isInteger(firstParts[0]) && firstParts[0] > 0 &&
-    Number.isInteger(firstParts[1]) && firstParts[1] >= 0 &&
-    lines.length > 1
-  ) {
-    n = firstParts[0];
-    edgeStart = 1;
-  }
 
   for (let i = edgeStart; i < lines.length; i++) {
-    const parts = lines[i].split(/[\s,\t]+/).map(Number);
+    const parts = lines[i].split(/\s+/).map(Number);
     if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) continue;
-    const u = parts[0], v = parts[1];
+    const [u, v] = parts;
     if (!adjacency[u]) adjacency[u] = new Set();
     if (!adjacency[v]) adjacency[v] = new Set();
     adjacency[u].add(v);
@@ -82,32 +125,35 @@ function parseGraph(text) {
     n = Math.max(n, u + 1, v + 1);
   }
 
-  // Ensure every node index 0..n-1 exists in adjacency
   for (let i = 0; i < n; i++) {
     if (!adjacency[i]) adjacency[i] = new Set();
-  }
-
-  if (n === 0 || edges.length === 0) {
-    throw new Error('No valid edges found. Expected lines with "u v" pairs (0-indexed).');
   }
 
   return { n, edges, adjacency };
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
+// Implements genuine k-WL over ordered k-tuples (product of nodes).
+// Uses a shared hashMap so two graphs get the same colour IDs for
+// identical signatures — required for correct isomorphism comparison.
+//
+// Safety: caller must have already verified n <= getMaxSafeN(k).
+
+function runKWL(graph, k, maxIter = 10, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Build all ordered k-tuples (n^k total)
+  // Build all k-tuples (n^k of them)
   let tuples = [[]];
   for (let d = 0; d < k; d++) {
     const next = [];
-    for (const t of tuples)
+    for (const t of tuples) {
       for (const v of nodes) next.push([...t, v]);
+    }
     tuples = next;
   }
 
+  // Hash map (shared or local)
   let hashCounter = sharedHashMap ? sharedHashMap.size : 0;
   const hashMap = sharedHashMap || new Map();
 
@@ -116,24 +162,27 @@ function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
     return hashMap.get(key);
   }
 
+  // Encode a tuple as a string key for the colors map
   const tupleKey = t => t.join(',');
 
-  // Initial colouring: encode adjacency pattern + degree sequence + equality pattern within tuple
+  // Initial colouring: based on the "type" of the tuple —
+  // isomorphism type of the induced subgraph on distinct nodes + degree info.
+  // Simple but effective: hash the sorted degree sequence of all nodes in the tuple.
   let colors = {};
   for (const t of tuples) {
-    const degrees = t.map(v => adjacency[v].size).join(',');
+    const degrees = t.map(node => adjacency[node].size).join(',');
+    // Also encode which pairs within the tuple are adjacent
     let adjPattern = '';
-    for (let i = 0; i < k; i++)
-      for (let j = i + 1; j < k; j++)
+    for (let i = 0; i < k; i++) {
+      for (let j = i + 1; j < k; j++) {
         adjPattern += adjacency[t[i]].has(t[j]) ? '1' : '0';
-    let eqPattern = '';
-    for (let i = 0; i < k; i++)
-      for (let j = i + 1; j < k; j++)
-        eqPattern += (t[i] === t[j]) ? '1' : '0';
-    colors[tupleKey(t)] = getHash(`init:${degrees}|${adjPattern}|${eqPattern}`);
+      }
+    }
+    colors[tupleKey(t)] = getHash(`init:${degrees}|${adjPattern}`);
   }
 
-  // Map tuple colors → per-node color (mode across tuples containing that node)
+  const iterations = [];
+  // Store per-node color for visualization: average colour over all tuples containing that node
   function nodeColorsFromTupleColors(tColors) {
     const nodeColor = {};
     for (let i = 0; i < n; i++) nodeColor[i] = [];
@@ -144,6 +193,7 @@ function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
     const result = {};
     for (let i = 0; i < n; i++) {
       const arr = nodeColor[i];
+      // Use the most frequent color for this node (mode)
       const freq = {};
       let best = arr[0], bestCount = 0;
       for (const c of arr) {
@@ -155,98 +205,115 @@ function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
     return result;
   }
 
-  const iterations = [nodeColorsFromTupleColors(colors)];
+  iterations.push(nodeColorsFromTupleColors(colors));
 
   for (let iter = 0; iter < maxIter; iter++) {
     const newColors = {};
 
     for (const t of tuples) {
       const tk = tupleKey(t);
-      // For each position i, collect colors of tuples formed by swapping t[i] with each neighbor
+      // For each position i in the tuple, collect colors of tuples formed by
+      // replacing t[i] with each neighbor of t[i]
       const neighborMultiset = [];
       for (let i = 0; i < k; i++) {
-        const nbrs = Array.from(adjacency[t[i]]).sort((a, b) => a - b);
-        for (const neighbor of nbrs) {
+        const node = t[i];
+        for (const neighbor of adjacency[node]) {
           const newTuple = [...t];
           newTuple[i] = neighbor;
-          const nc = colors[tupleKey(newTuple)];
-          if (nc !== undefined) neighborMultiset.push(`${i}:${nc}`);
+          const neighborColor = colors[tupleKey(newTuple)];
+          if (neighborColor !== undefined) {
+            neighborMultiset.push(`${i}:${neighborColor}`);
+          }
         }
       }
       neighborMultiset.sort();
 
-      const degPattern = t.map(v => adjacency[v].size).join(',');
-      const sig = `${colors[tk]}|${neighborMultiset.join(';')}|${degPattern}`;
-      newColors[tk] = getHash(sig);
+      // Signature = (current color, sorted neighbor multiset, degree pattern)
+      const degPattern = t.map(node => adjacency[node].size).join(',');
+      const signature = `${colors[tk]}|${neighborMultiset.join(';')}|${degPattern}`;
+      newColors[tk] = getHash(signature);
     }
 
     iterations.push(nodeColorsFromTupleColors(newColors));
 
+    // Check convergence
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
     colors = newColors;
     if (!changed) break;
   }
 
-  return { iterations, _finalTupleColors: colors, tuples };
+  // Store final tuple colors for certificate comparison
+  const _finalTupleColors = colors;
+
+  return { iterations, _finalTupleColors, tuples };
 }
 
-// Build canonical colour histogram (certificate)
+// Build a canonical colour histogram (certificate) from tuple colors.
 function certificate(tupleColorMap) {
   const freq = {};
-  for (const c of Object.values(tupleColorMap)) freq[c] = (freq[c] || 0) + 1;
-  return Object.entries(freq).map(([c, cnt]) => `${c}:${cnt}`).sort().join(',');
+  for (const c of Object.values(tupleColorMap)) {
+    freq[c] = (freq[c] || 0) + 1;
+  }
+  return Object.entries(freq)
+    .map(([c, cnt]) => `${c}:${cnt}`)
+    .sort()
+    .join(',');
 }
 
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
-function compareGraphs(g1, g2, k, maxIter = 12) {
+function compareGraphs(g1, g2, k, maxIter = 10) {
   const sharedMap = new Map();
+
   const r1 = runKWL(g1, k, maxIter, sharedMap);
   const r2 = runKWL(g2, k, maxIter, sharedMap);
 
-  const degSeq = graph =>
+  const iter1 = r1.iterations;
+  const iter2 = r2.iterations;
+
+  // Degree sequences
+  const degSeq = (graph) =>
     Array.from({ length: graph.n }, (_, i) => graph.adjacency[i].size).sort((a, b) => a - b);
   const ds1 = degSeq(g1), ds2 = degSeq(g2);
   const degMatch = ds1.length === ds2.length && ds1.every((v, i) => v === ds2[i]);
 
+  // Certificate comparison using tuple colors
   const cert1 = certificate(r1._finalTupleColors);
   const cert2 = certificate(r2._finalTupleColors);
   const wlMatch = cert1 === cert2;
 
-  const nodeCert = nodeColors => {
+  // Also compare per-iteration node-level certificates
+  const nodeCert = (nodeColors) => {
     const freq = {};
     Object.values(nodeColors).forEach(c => { freq[c] = (freq[c] || 0) + 1; });
     return Object.entries(freq).map(([c, cnt]) => `${c}:${cnt}`).sort().join(',');
   };
-
-  const certs1 = r1.iterations.map(nodeCert);
-  const certs2 = r2.iterations.map(nodeCert);
+  const certs1 = iter1.map(nodeCert);
+  const certs2 = iter2.map(nodeCert);
 
   let firstDiff = -1;
   for (let i = 0; i < Math.min(certs1.length, certs2.length); i++) {
     if (certs1[i] !== certs2[i]) { firstDiff = i; break; }
   }
 
-  return {
-    isomorphic: degMatch && wlMatch,
-    degMatch, wlMatch, firstDiff,
-    iter1: r1.iterations,
-    iter2: r2.iterations,
-  };
+  const isomorphic = degMatch && wlMatch;
+
+  return { isomorphic, degMatch, wlMatch, firstDiff,
+           certificates1: certs1, certificates2: certs2,
+           iter1, iter2 };
 }
 
 // ---- D3 VISUALIZATION -------------------------------------- 
 const NODE_PALETTE = [
   '#4f73ff', '#7c5cfc', '#0d9e8a', '#e67e22', '#c94040',
   '#2980b9', '#8e44ad', '#27ae60', '#d35400', '#2c3e50',
-  '#16a085', '#c0392b', '#f39c12', '#1a5276', '#6c3483',
+  '#16a085', '#c0392b', '#2471a3', '#1a5276', '#6c3483'
 ];
 
 function colorForLabel(label) {
-  const idx = ((label % NODE_PALETTE.length) + NODE_PALETTE.length) % NODE_PALETTE.length;
-  return NODE_PALETTE[idx];
+  return NODE_PALETTE[label % NODE_PALETTE.length];
 }
 
-function drawGraph(svgEl, graph, initialColors) {
+function drawGraph(svgEl, graph, colors, { tooltip } = {}) {
   const { n, edges, adjacency } = graph;
   const svg = d3.select(svgEl);
   svg.selectAll('*').remove();
@@ -255,20 +322,25 @@ function drawGraph(svgEl, graph, initialColors) {
   const W = rect.width || 400;
   const H = rect.height || 340;
 
-  const nodes = Array.from({ length: n }, (_, i) => ({ id: i, label: initialColors[i] ?? 0 }));
+  const nodes = Array.from({ length: n }, (_, i) => ({ id: i, label: colors[i] ?? 0 }));
   const links = edges.map(([s, t]) => ({ source: s, target: t }));
 
-  const charge = -Math.max(60, Math.min(400, 400 / Math.max(n, 1)));
-  const linkDist = Math.min(80, (W / Math.max(n + 1, 2)) * 2.5);
-
   const simulation = d3.forceSimulation(nodes)
-    .force('link',      d3.forceLink(links).id(d => d.id).distance(linkDist).strength(0.5))
-    .force('charge',    d3.forceManyBody().strength(charge))
-    .force('center',    d3.forceCenter(W / 2, H / 2))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(Math.min(80, W / (n + 1) * 2.5)).strength(0.6))
+    .force('charge', d3.forceManyBody().strength(-Math.max(60, 400 / n)))
+    .force('center', d3.forceCenter(W / 2, H / 2))
     .force('collision', d3.forceCollide(22))
-    .alphaDecay(0.026);
+    .alphaDecay(0.028);
 
   const g = svg.append('g');
+
+  const link = g.append('g').attr('class', 'links')
+    .selectAll('line')
+    .data(links)
+    .join('line')
+    .attr('stroke', 'rgba(148, 163, 184, 0.45)')
+    .attr('stroke-width', 1.5)
+    .attr('stroke-linecap', 'round');
 
   const defs = svg.append('defs');
   defs.append('filter').attr('id', 'node-glow')
@@ -277,17 +349,14 @@ function drawGraph(svgEl, graph, initialColors) {
     .attr('stdDeviation', 3)
     .attr('flood-opacity', 0.22);
 
-  const link = g.append('g')
-    .selectAll('line').data(links).join('line')
-    .attr('stroke', 'rgba(148, 163, 184, 0.45)')
-    .attr('stroke-width', 1.5)
-    .attr('stroke-linecap', 'round');
-
-  const nodeG = g.append('g')
-    .selectAll('g').data(nodes).join('g')
+  const node = g.append('g').attr('class', 'nodes')
+    .selectAll('g')
+    .data(nodes)
+    .join('g')
+    .attr('class', 'node-group')
     .style('cursor', 'pointer');
 
-  const circles = nodeG.append('circle')
+  const circles = node.append('circle')
     .attr('r', 0)
     .attr('fill', d => colorForLabel(d.label))
     .attr('stroke', 'white')
@@ -295,31 +364,33 @@ function drawGraph(svgEl, graph, initialColors) {
     .attr('filter', 'url(#node-glow)');
 
   circles.transition()
-    .delay((_, i) => i * 30)
-    .duration(420)
+    .delay((d, i) => i * 30)
+    .duration(400)
     .ease(d3.easeCubicOut)
     .attr('r', 14);
 
-  nodeG.append('text')
+  node.append('text')
     .text(d => d.id)
     .attr('text-anchor', 'middle')
     .attr('dy', '0.35em')
     .attr('fill', 'white')
     .attr('font-family', "'DM Mono', monospace")
-    .attr('font-size', n > 20 ? '8px' : '10px')
+    .attr('font-size', '10px')
     .attr('font-weight', '700')
     .attr('pointer-events', 'none')
     .style('opacity', 0)
-    .transition().delay((_, i) => i * 30 + 200).duration(300)
+    .transition().delay((d, i) => i * 30 + 200).duration(300)
     .style('opacity', 1);
 
   const tooltipEl = document.getElementById('tooltip');
 
-  nodeG
+  node
     .on('mouseover', function(event, d) {
       d3.select(this).select('circle')
         .transition().duration(120)
-        .attr('r', 18).attr('stroke-width', 2.5);
+        .attr('r', 18)
+        .attr('stroke-width', 2.5);
+
       if (tooltipEl) {
         const deg = adjacency[d.id] ? adjacency[d.id].size : 0;
         tooltipEl.innerHTML = `
@@ -328,17 +399,20 @@ function drawGraph(svgEl, graph, initialColors) {
           Degree: ${deg}
         `;
         tooltipEl.classList.add('visible');
+        tooltipEl.removeAttribute('aria-hidden');
       }
     })
     .on('mousemove', function(event) {
       if (tooltipEl) {
-        tooltipEl.style.transform = `translate3d(${event.clientX + 14}px,${event.clientY - 30}px,0)`;
+        tooltipEl.style.transform = `translate3d(${event.clientX + 14}px, ${event.clientY - 30}px, 0)`;
       }
     })
     .on('mouseout', function() {
       d3.select(this).select('circle')
         .transition().duration(150)
-        .attr('r', 14).attr('stroke-width', 2);
+        .attr('r', 14)
+        .attr('stroke-width', 2);
+
       if (tooltipEl) {
         tooltipEl.classList.remove('visible');
         tooltipEl.setAttribute('aria-hidden', 'true');
@@ -351,102 +425,33 @@ function drawGraph(svgEl, graph, initialColors) {
       d.fx = d.x; d.fy = d.y;
     })
     .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
-    .on('end',  (event, d) => {
+    .on('end', (event, d) => {
       if (!event.active) simulation.alphaTarget(0);
       d.fx = null; d.fy = null;
     });
-  nodeG.call(drag);
+  node.call(drag);
 
   simulation.on('tick', () => {
     nodes.forEach(d => {
       d.x = Math.max(20, Math.min(W - 20, d.x));
       d.y = Math.max(20, Math.min(H - 20, d.y));
     });
+
     link
       .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
       .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-    nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
+
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Return a function that re-colors nodes without restarting the simulation
   return function updateColors(newColors) {
-    nodeG.each(function(d) { d.label = newColors[d.id] ?? 0; });
-    nodeG.select('circle')
+    node.each(function(d) {
+      d.label = newColors[d.id] ?? 0;
+    });
+    node.select('circle')
       .transition().duration(400).ease(d3.easeCubicInOut)
       .attr('fill', d => colorForLabel(d.label));
   };
-}
-
-// ---- EMPTY STATE ANIMATED GRAPH (FIX: explicit dimensions) ----
-function drawEmptyStateGraph() {
-  const container = document.getElementById('empty-graph');
-  if (!container) return;
-
-  // FIX: must set explicit size before D3 appends SVG
-  container.style.width  = '220px';
-  container.style.height = '180px';
-
-  const W = 220, H = 180;
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('viewBox', `0 0 ${W} ${H}`)
-    .attr('width', W)
-    .attr('height', H);
-
-  const nodesData = [
-    { id: 0, x: 110, y: 36 },
-    { id: 1, x: 48,  y: 106 },
-    { id: 2, x: 172, y: 106 },
-    { id: 3, x: 28,  y: 162 },
-    { id: 4, x: 110, y: 158 },
-    { id: 5, x: 192, y: 162 },
-  ];
-  const linksData = [[0,1],[0,2],[1,2],[1,3],[2,5],[1,4],[2,4],[4,5]];
-  const palette   = ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'];
-
-  svg.append('g').selectAll('line').data(linksData).join('line')
-    .attr('x1', d => nodesData[d[0]].x).attr('y1', d => nodesData[d[0]].y)
-    .attr('x2', d => nodesData[d[1]].x).attr('y2', d => nodesData[d[1]].y)
-    .attr('stroke', 'rgba(148,163,184,0.35)').attr('stroke-width', 1.8);
-
-  const ng = svg.append('g')
-    .selectAll('g').data(nodesData).join('g')
-    .attr('transform', d => `translate(${d.x},${d.y})`);
-
-  ng.append('circle')
-    .attr('r', 0)
-    .attr('fill', (_, i) => palette[i])
-    .attr('stroke', 'white').attr('stroke-width', 2.5)
-    .transition()
-    .delay((_, i) => i * 90)
-    .duration(560)
-    .ease(d3.easeBackOut)
-    .attr('r', 15);
-
-  ng.append('text')
-    .text(d => d.id)
-    .attr('text-anchor', 'middle').attr('dy', '0.35em')
-    .attr('fill', 'white')
-    .attr('font-family', "'DM Mono',monospace")
-    .attr('font-size', '10')
-    .attr('font-weight', '700')
-    .attr('pointer-events', 'none')
-    .style('opacity', 0)
-    .transition().delay((_, i) => i * 90 + 360).duration(300)
-    .style('opacity', 1);
-
-  const colorSets = [
-    ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'],
-    ['#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#4f73ff','#7c5cfc'],
-    ['#0d9e8a','#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#e67e22'],
-  ];
-  let step = 0;
-  setInterval(() => {
-    step = (step + 1) % colorSets.length;
-    svg.selectAll('circle')
-      .transition().duration(900).ease(d3.easeCubicInOut)
-      .attr('fill', (_, i) => colorSets[step][i]);
-  }, 2400);
 }
 
 // ---- DEGREE TABLE ------------------------------------------
@@ -492,13 +497,6 @@ function renderResults(graphs, iterData, compareResult) {
   const stack = document.createElement('div');
   stack.className = 'result-stack';
 
-  // Stats card
-  const g1 = graphs[0], g2 = graphs[1];
-  const totalNodes   = g2 ? g1.n + g2.n : g1.n;
-  const iters        = iterData[0] ? iterData[0].length : 1;
-  const colorClasses = iterData[0]
-    ? new Set(Object.values(iterData[0][iterData[0].length - 1])).size : 0;
-
   const statsCard = document.createElement('div');
   statsCard.className = 'stats-card anim-slide-up';
   statsCard.innerHTML = `
@@ -510,14 +508,21 @@ function renderResults(graphs, iterData, compareResult) {
   `;
   stack.appendChild(statsCard);
 
+  const statsRow = statsCard.querySelector('#stats-row');
+  const g1 = graphs[0];
+  const g2 = graphs[1];
+
+  const totalNodes = g2 ? g1.n + g2.n : g1.n;
+  const iters = iterData[0] ? iterData[0].length : 1;
+  const colorClasses = iterData[0] ? new Set(Object.values(iterData[0][iterData[0].length - 1])).size : 0;
+
   const statItems = [
-    { label: 'Graphs',        value: graphs.length,  note: 'analyzed' },
-    { label: 'Total Nodes',   value: totalNodes,      note: g2 ? `${g1.n} + ${g2.n}` : 'single graph' },
-    { label: 'Iterations',    value: iters,           note: `${state.k}-WL refinement` },
-    { label: 'Color Classes', value: colorClasses,    note: 'final partition' },
+    { label: 'Graphs', value: graphs.length, note: 'analyzed' },
+    { label: 'Total Nodes', value: totalNodes, note: `${g2 ? `${g1.n} + ${g2.n}` : 'single graph'}` },
+    { label: 'Iterations', value: iters, note: `${state.k}-WL refinement` },
+    { label: 'Color Classes', value: colorClasses, note: 'final partition' },
   ];
 
-  const statsRow = statsCard.querySelector('#stats-row');
   statItems.forEach((s, i) => {
     const box = document.createElement('div');
     box.className = `stat-box anim-slide-up anim-d${i + 1}`;
@@ -531,18 +536,18 @@ function renderResults(graphs, iterData, compareResult) {
 
   setTimeout(() => {
     statsRow.querySelectorAll('.stat-value').forEach(el => {
-      animateCounter(el, 0, parseInt(el.dataset.target), 700);
+      const target = parseInt(el.dataset.target);
+      animateCounter(el, 0, target, 700);
     });
   }, 200);
 
-  // Verdict card (compare mode only)
   if (compareResult) {
-    const cls = compareResult.isomorphic ? 'pass' : 'fail';
     const verdictCard = document.createElement('div');
+    const cls = compareResult.isomorphic ? 'pass' : 'fail';
     verdictCard.className = `verdict-card ${cls} anim-slide-up anim-d2`;
 
-    const wlStatus      = compareResult.wlMatch ? 'Identical' : 'Different';
-    const degStatus     = compareResult.degMatch ? 'Match'    : 'Mismatch';
+    const wlStatus = compareResult.wlMatch ? 'Identical' : 'Different';
+    const degStatus = compareResult.degMatch ? 'Match' : 'Mismatch';
     const firstDiffText = compareResult.firstDiff >= 0
       ? `Diverges at iteration ${compareResult.firstDiff}`
       : 'Stable across all iterations';
@@ -581,14 +586,13 @@ function renderResults(graphs, iterData, compareResult) {
     stack.appendChild(verdictCard);
   }
 
-  // Iteration viewer
   const iterCard = document.createElement('div');
   iterCard.className = 'iter-card anim-slide-up anim-d3';
 
   const numIters = iterData[0] ? iterData[0].length : 1;
   const tabsHTML = Array.from({ length: numIters }, (_, i) => {
     const hasDiff = compareResult && compareResult.firstDiff === i;
-    return `<button class="iter-tab${i === 0 ? ' active' : ''}${hasDiff ? ' has-diff' : ''}" data-iter="${i}">
+    return `<button class="iter-tab ${i === 0 ? 'active' : ''} ${hasDiff ? 'has-diff' : ''}" data-iter="${i}">
       ${i === 0 ? 'Initial' : `Iter ${i}`}
     </button>`;
   }).join('');
@@ -602,10 +606,11 @@ function renderResults(graphs, iterData, compareResult) {
       <div class="iter-tabs-wrap">
         ${tabsHTML}
         ${compareResult && compareResult.firstDiff >= 0
-          ? `<div class="diff-banner visible">⚡ Diff at iter ${compareResult.firstDiff}</div>` : ''}
+          ? `<div class="diff-banner visible">⚡ Diff at iter ${compareResult.firstDiff}</div>`
+          : ''}
       </div>
     </div>
-    <div class="graph-grid${graphs.length === 1 ? ' single' : ''}" id="graph-grid"></div>
+    <div class="graph-grid ${graphs.length === 1 ? 'single' : ''}" id="graph-grid"></div>
   `;
   stack.appendChild(iterCard);
 
@@ -617,10 +622,9 @@ function renderResults(graphs, iterData, compareResult) {
     panelEl.className = 'graph-panel anim-pop-in';
     panelEl.style.animationDelay = (gi * 0.07 + 0.2) + 's';
 
-    const label  = gi === 0 ? 'Graph A' : 'Graph B';
+    const label = gi === 0 ? 'Graph A' : 'Graph B';
     const colors = iterData[gi] ? iterData[gi][0] : {};
-    const cc     = new Set(Object.values(colors)).size;
-    const maxDeg = Math.max(...Object.values(graph.adjacency).map(s => s.size), 0);
+    const colorClasses = new Set(Object.values(colors)).size;
 
     panelEl.innerHTML = `
       <div class="graph-panel-head">
@@ -628,7 +632,7 @@ function renderResults(graphs, iterData, compareResult) {
           <div class="graph-kicker">${label}</div>
           <h4>${graph.n} nodes, ${graph.edges.length} edges</h4>
         </div>
-        <span class="panel-badge" id="panel-badge-${gi}">${cc} colors</span>
+        <span class="panel-badge" id="panel-badge-${gi}">${colorClasses} colors</span>
       </div>
       <div class="graph-canvas" id="canvas-${gi}">
         <svg class="graph-svg" id="svg-${gi}"></svg>
@@ -636,7 +640,7 @@ function renderResults(graphs, iterData, compareResult) {
       <div class="graph-footer">
         <span class="graph-chip">n = ${graph.n}</span>
         <span class="graph-chip">m = ${graph.edges.length}</span>
-        <span class="graph-chip">Δ = ${maxDeg}</span>
+        <span class="graph-chip">Δ = ${Math.max(...Object.values(graph.adjacency).map(s => s.size), 0)}</span>
         <span class="graph-chip kwl-chip">${state.k}-WL</span>
       </div>
     `;
@@ -647,11 +651,11 @@ function renderResults(graphs, iterData, compareResult) {
     graphs.forEach((graph, gi) => {
       const svgEl = document.getElementById(`svg-${gi}`);
       if (!svgEl) return;
-      const initColors = iterData[gi] ? iterData[gi][0] : {};
-      const fn = drawGraph(svgEl, graph, initColors);
-      updateFns.push({ gi, fn });
+      const initialColors = iterData[gi] ? iterData[gi][0] : {};
+      const updateFn = drawGraph(svgEl, graph, initialColors, { tooltip: true });
+      updateFns.push({ gi, fn: updateFn });
     });
-  }, 100);
+  }, 80);
 
   iterCard.querySelectorAll('.iter-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -662,29 +666,32 @@ function renderResults(graphs, iterData, compareResult) {
 
       graphs.forEach((_, gi) => {
         if (!iterData[gi]) return;
-        const colors = iterData[gi][iter] ?? iterData[gi][iterData[gi].length - 1];
+        const colors = iterData[gi][iter] || iterData[gi][iterData[gi].length - 1];
         const updater = updateFns.find(u => u.gi === gi);
         if (updater) updater.fn(colors);
         const badge = document.getElementById(`panel-badge-${gi}`);
-        if (badge) badge.textContent = new Set(Object.values(colors)).size + ' colors';
+        if (badge) {
+          const classes = new Set(Object.values(colors)).size;
+          badge.textContent = classes + ' colors';
+        }
       });
     });
   });
 
-  // Degree tables
   const tablesCard = document.createElement('div');
-  tablesCard.className = 'tables-card anim-slide-up anim-d4';
+  tablesCard.className = `tables-card anim-slide-up anim-d4`;
   tablesCard.innerHTML = `
     <div class="card-header">
       <div class="card-eyebrow">Structural Analysis</div>
       <h3>Degree Distribution</h3>
     </div>
-    <div class="tables-grid${graphs.length === 1 ? ' single' : ''}" id="tables-grid"></div>
+    <div class="tables-grid ${graphs.length === 1 ? 'single' : ''}" id="tables-grid"></div>
   `;
   stack.appendChild(tablesCard);
 
   const tablesGrid = tablesCard.querySelector('#tables-grid');
-  graphs.forEach((graph, gi) => buildDegTable(tablesGrid, graph, gi === 0 ? 'Graph A' : 'Graph B'));
+  const labels = ['Graph A', 'Graph B'];
+  graphs.forEach((graph, gi) => buildDegTable(tablesGrid, graph, labels[gi]));
 
   area.appendChild(stack);
 }
@@ -692,75 +699,70 @@ function renderResults(graphs, iterData, compareResult) {
 // ---- COUNTER ANIMATION ------------------------------------- 
 function animateCounter(el, from, to, duration) {
   const start = performance.now();
-  (function tick(now) {
-    const progress = Math.min((now - start) / duration, 1);
+  function tick(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
     const ease = 1 - Math.pow(1 - progress, 3);
     el.textContent = Math.round(from + (to - from) * ease);
     if (progress < 1) requestAnimationFrame(tick);
-  })(start);
+  }
+  requestAnimationFrame(tick);
 }
 
-// ---- ERROR DISPLAYS ----------------------------------------
-function showError(msg) {
-  const area = document.getElementById('results-area');
-  area.innerHTML = `<div class="banner error anim-slide-up">${msg}</div>`;
-}
+// ---- EMPTY STATE ANIMATED GRAPH ---------------------------- 
+function drawEmptyStateGraph() {
+  const container = document.getElementById('empty-graph');
+  if (!container) return;
 
-function showKWLError(msg) {
-  const area  = document.getElementById('results-area');
-  const lines = msg.split('\n').filter(Boolean);
+  const W = 220, H = 180;
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${W} ${H}`)
+    .attr('width', W).attr('height', H);
 
-  area.innerHTML = `
-    <div class="kwl-error-card anim-slide-up">
-      <div class="kwl-error-icon">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <circle cx="14" cy="14" r="12" stroke="#c94040" stroke-width="1.8"/>
-          <path d="M14 8v7M14 18v2" stroke="#c94040" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <div class="kwl-error-body">
-        <div class="kwl-error-title">Graph too large for k=${state.k}</div>
-        <div class="kwl-error-main">${lines[0] || msg}</div>
-        ${lines.length > 1 ? `<div class="kwl-error-detail">${lines.slice(1).join('<br>')}</div>` : ''}
-        <div class="kwl-error-hint">
-          <strong>Reference: Safe limits per k value</strong>
-          <table class="kwl-limits-mini">
-            <thead><tr><th>k</th><th>Max nodes</th><th>Tuple count</th></tr></thead>
-            <tbody>
-              <tr class="${state.k===1?'active-k':''}"><td>1</td><td>Unlimited</td><td>n</td></tr>
-              <tr class="${state.k===2?'active-k':''}"><td>2</td><td>≤ 500</td><td>n²</td></tr>
-              <tr class="${state.k===3?'active-k':''}"><td>3</td><td>≤ 100</td><td>n³</td></tr>
-              <tr class="${state.k===4?'active-k':''}"><td>4</td><td>≤ 30</td><td>n⁴</td></tr>
-              <tr class="${state.k===5?'active-k':''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
-}
+  const nodes = [
+    { id: 0, x: 110, y: 40 },
+    { id: 1, x: 50, y: 110 },
+    { id: 2, x: 170, y: 110 },
+    { id: 3, x: 30, y: 160 },
+    { id: 4, x: 110, y: 155 },
+    { id: 5, x: 190, y: 155 },
+  ];
+  const links = [[0,1],[0,2],[1,2],[1,3],[2,5],[1,4],[2,4],[4,5]];
+  const palette = ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'];
 
-// ---- FILE READING ------------------------------------------
-function readFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = e => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('Could not read file'));
-    reader.readAsText(file);
-  });
-}
+  svg.append('g').selectAll('line').data(links).join('line')
+    .attr('x1', d => nodes[d[0]].x).attr('y1', d => nodes[d[0]].y)
+    .attr('x2', d => nodes[d[1]].x).attr('y2', d => nodes[d[1]].y)
+    .attr('stroke', 'rgba(148,163,184,0.35)').attr('stroke-width', 1.5);
 
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+  const ng = svg.append('g').selectAll('g').data(nodes).join('g')
+    .attr('transform', d => `translate(${d.x},${d.y})`);
 
-// ---- Custom error class ------------------------------------
-class KWLSizeError extends Error {
-  constructor(msg) { super(msg); this.name = 'KWLSizeError'; }
-}
+  ng.append('circle').attr('r', 0).attr('fill', (d, i) => palette[i])
+    .attr('stroke', 'white').attr('stroke-width', 2)
+    .transition().delay((d, i) => i * 80).duration(500).ease(d3.easeBackOut)
+    .attr('r', 14);
 
-function recommendK(n) {
-  for (let k = 5; k >= 1; k--)
-    if (n <= getMaxSafeN(k)) return k;
-  return 1;
+  ng.append('text').text(d => d.id)
+    .attr('text-anchor', 'middle').attr('dy', '0.35em')
+    .attr('fill', 'white').attr('font-family', "'DM Mono',monospace")
+    .attr('font-size', '10').attr('font-weight', '700').attr('pointer-events', 'none')
+    .style('opacity', 0).transition().delay((d, i) => i * 80 + 300).duration(300)
+    .style('opacity', 1);
+
+  let step = 0;
+  const colorSets = [
+    ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'],
+    ['#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#4f73ff','#7c5cfc'],
+    ['#0d9e8a','#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#e67e22'],
+  ];
+
+  setInterval(() => {
+    step = (step + 1) % colorSets.length;
+    svg.selectAll('circle').transition().duration(800).ease(d3.easeCubicInOut)
+      .attr('fill', (d, i) => colorSets[step][i]);
+  }, 2200);
 }
 
 // ---- MAIN RUN ----------------------------------------------
@@ -769,12 +771,13 @@ async function runAnalysis() {
 
   const file1 = document.getElementById('file1').files[0];
   const file2 = document.getElementById('file2').files[0];
-  const k     = state.k;
+  const k = state.k;
 
   if (!file1) {
     showError('⚠️ No file uploaded. Please upload at least one graph file to analyze.');
     return;
   }
+
   if (state.mode === 'compare' && !file2) {
     showError('⚠️ Compare mode requires two graph files. Please upload Graph B.');
     return;
@@ -790,10 +793,11 @@ async function runAnalysis() {
     await delay(80);
     const text1 = await readFile(file1);
     Progress.set('Parsing Graph A…', 20);
+
     await delay(60);
     const g1 = parseGraph(text1);
 
-    // Safety check Graph A
+    // ---- SAFETY CHECK: n vs k limit ----
     const maxN = getMaxSafeN(k);
     if (g1.n > maxN) {
       throw new KWLSizeError(
@@ -810,7 +814,7 @@ async function runAnalysis() {
       await delay(60);
       g2 = parseGraph(text2);
 
-      // Safety check Graph B
+      // Safety check for graph B too
       if (g2.n > maxN) {
         throw new KWLSizeError(
           `Graph B has ${g2.n} nodes, but k=${k} only supports up to ${maxN} nodes safely.\n` +
@@ -838,7 +842,7 @@ async function runAnalysis() {
     Progress.set('Building visualization…', 90);
     await delay(60);
 
-    const graphs   = g2 ? [g1, g2] : [g1];
+    const graphs = g2 ? [g1, g2] : [g1];
     const iterData = g2 ? [iter1, iter2] : [iter1];
 
     Progress.set('Complete!', 100);
@@ -850,8 +854,11 @@ async function runAnalysis() {
 
   } catch (err) {
     Progress.hide();
-    if (err instanceof KWLSizeError) showKWLError(err.message);
-    else showError('⚠️ Failed to parse graph: ' + err.message + '. Check the file format (edges as "u v" per line, 0-indexed).');
+    if (err instanceof KWLSizeError) {
+      showKWLError(err.message);
+    } else {
+      showError('⚠️ Failed to parse graph: ' + err.message + '. Check the file format.');
+    }
     Audio.play('error');
     console.error(err);
   } finally {
@@ -860,29 +867,141 @@ async function runAnalysis() {
   }
 }
 
-function setK(val) {
-  val = Math.max(1, Math.min(5, val));
-  state.k = val;
+// ---- Custom error class for size violations ----------------
+class KWLSizeError extends Error {
+  constructor(msg) { super(msg); this.name = 'KWLSizeError'; }
+}
 
-  const display = document.getElementById('k-display');
-  display.textContent = val;
+// Recommend the highest k that fits a given n
+function recommendK(n) {
+  for (let k = 5; k >= 1; k--) {
+    if (n <= getMaxSafeN(k)) return k;
+  }
+  return 1;
+}
 
-  // Trigger bump animation
-  display.classList.remove('bump');
-  void display.offsetWidth; // force reflow to restart animation
-  display.classList.add('bump');
+// ---- ERROR DISPLAYS ----------------------------------------
+function showError(msg) {
+  const area = document.getElementById('results-area');
+  area.innerHTML = `<div class="banner error anim-slide-up">${msg}</div>`;
+}
 
-  // Highlight the matching row in the safe-limits table
-  document.querySelectorAll('.kwl-limits-table tbody tr').forEach(row => {
-    row.classList.toggle('active-k', parseInt(row.dataset.k) === val);
+function showKWLError(msg) {
+  const area = document.getElementById('results-area');
+  const lines = msg.split('\n').filter(Boolean);
+  const mainMsg = lines[0] || msg;
+  const detail = lines.slice(1).join('<br>');
+
+  area.innerHTML = `
+    <div class="kwl-error-card anim-slide-up">
+      <div class="kwl-error-icon">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="12" stroke="#c94040" stroke-width="1.8"/>
+          <path d="M14 8v7M14 18v2" stroke="#c94040" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="kwl-error-body">
+        <div class="kwl-error-title">Graph too large for k=${state.k}</div>
+        <div class="kwl-error-main">${mainMsg}</div>
+        ${detail ? `<div class="kwl-error-detail">${detail}</div>` : ''}
+        <div class="kwl-error-hint">
+          <strong>Reference: Safe limits per k value</strong>
+          <table class="kwl-limits-mini">
+            <thead><tr><th>k</th><th>Max nodes</th><th>Tuple count</th></tr></thead>
+            <tbody>
+              <tr class="${state.k===1?'active-k':''}"><td>1</td><td>Unlimited</td><td>n (standard 1-WL)</td></tr>
+              <tr class="${state.k===2?'active-k':''}"><td>2</td><td>≤ 500</td><td>n²</td></tr>
+              <tr class="${state.k===3?'active-k':''}"><td>3</td><td>≤ 100</td><td>n³</td></tr>
+              <tr class="${state.k===4?'active-k':''}"><td>4</td><td>≤ 30</td><td>n⁴</td></tr>
+              <tr class="${state.k===5?'active-k',''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsText(file);
   });
 }
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ---- EVENT WIRING ------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  Progress.init();
+
+  document.getElementById('btn-single').addEventListener('click', () => {
+    Audio.play('click');
+    state.mode = 'single';
+    document.getElementById('btn-single').classList.add('active');
+    document.getElementById('btn-compare').classList.remove('active');
+    document.querySelectorAll('.compare-only').forEach(el => el.classList.add('hidden'));
+  });
+
+  document.getElementById('btn-compare').addEventListener('click', () => {
+    Audio.play('click');
+    state.mode = 'compare';
+    document.getElementById('btn-compare').classList.add('active');
+    document.getElementById('btn-single').classList.remove('active');
+    document.querySelectorAll('.compare-only').forEach(el => el.classList.remove('hidden'));
+  });
+
+  const kInput = document.getElementById('k-input');
+  const kDisplay = document.getElementById('k-display');
+
+  function setK(val) {
+    val = Math.max(1, Math.min(5, val));
+    state.k = val;
+    kInput.value = val;
+    kDisplay.textContent = val;
+    kDisplay.style.transform = 'scale(1.3)';
+    setTimeout(() => kDisplay.style.transition = 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)', 0);
+    setTimeout(() => { kDisplay.style.transform = 'scale(1)'; }, 50);
+    // Update the safe-limits table to highlight the current row
+    updateLimitsTable(val);
+  }
+
+  function updateLimitsTable(k) {
+    document.querySelectorAll('.kwl-limits-table tbody tr').forEach(row => {
+      row.classList.remove('active-k');
+      if (parseInt(row.dataset.k) === k) row.classList.add('active-k');
+    });
+  }
+
+  document.getElementById('k-dec').addEventListener('click', () => { Audio.play('click'); setK(state.k - 1); });
+  document.getElementById('k-inc').addEventListener('click', () => { Audio.play('click'); setK(state.k + 1); });
+  kInput.addEventListener('input', () => setK(parseInt(kInput.value) || 1));
+
+  setupUpload('file1', 'fname1', 'zone1');
+  setupUpload('file2', 'fname2', 'zone2');
+
+  const soundBtn = document.getElementById('sound-toggle');
+  soundBtn.addEventListener('click', () => {
+    state.soundEnabled = !state.soundEnabled;
+    soundBtn.setAttribute('aria-pressed', state.soundEnabled);
+    if (state.soundEnabled) Audio.play('click');
+  });
+
+  document.getElementById('run-btn').addEventListener('click', runAnalysis);
+
+  drawEmptyStateGraph();
+  animateBgOrbs();
+
+  // Initialise highlight on default k=1
+  updateLimitsTable(1);
+});
 
 function setupUpload(inputId, fnameId, zoneId) {
   const input = document.getElementById(inputId);
   const fname = document.getElementById(fnameId);
   const zone  = document.getElementById(zoneId);
-  if (!input || !zone) return;
 
   input.addEventListener('change', () => {
     if (input.files[0]) {
@@ -898,12 +1017,13 @@ function setupUpload(inputId, fnameId, zoneId) {
     e.preventDefault();
     zone.classList.remove('dragover');
     const file = e.dataTransfer.files[0];
-    if (file) {
+    if (file && file.name.endsWith('.txt')) {
       const dt = new DataTransfer();
       dt.items.add(file);
       input.files = dt.files;
       fname.textContent = file.name;
       zone.classList.add('loaded');
+      Audio.play('click');
     }
   });
 }
@@ -914,60 +1034,13 @@ function animateBgOrbs() {
   const orb1 = document.querySelector('.orb-1');
   const orb2 = document.querySelector('.orb-2');
   const orb3 = document.querySelector('.orb-3');
+
   function tick() {
     hue += 0.1;
-    if (orb1) orb1.style.background = `radial-gradient(circle,hsla(${220+Math.sin(hue*.01)*20},90%,65%,0.09) 0%,transparent 70%)`;
-    if (orb2) orb2.style.background = `radial-gradient(circle,hsla(${260+Math.sin(hue*.008+2)*25},85%,62%,0.08) 0%,transparent 70%)`;
-    if (orb3) orb3.style.background = `radial-gradient(circle,hsla(${165+Math.sin(hue*.012+4)*30},80%,50%,0.06) 0%,transparent 70%)`;
+    if (orb1) orb1.style.background = `radial-gradient(circle, hsla(${220 + Math.sin(hue * 0.01) * 20}, 90%, 65%, 0.09) 0%, transparent 70%)`;
+    if (orb2) orb2.style.background = `radial-gradient(circle, hsla(${260 + Math.sin(hue * 0.008 + 2) * 25}, 85%, 62%, 0.08) 0%, transparent 70%)`;
+    if (orb3) orb3.style.background = `radial-gradient(circle, hsla(${165 + Math.sin(hue * 0.012 + 4) * 30}, 80%, 50%, 0.06) 0%, transparent 70%)`;
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 }
-
-// ---- EVENT WIRING ------------------------------------------
-document.addEventListener('DOMContentLoaded', () => {
-  Progress.init();
-
-  // Mode toggle
-  document.getElementById('btn-single').addEventListener('click', () => {
-    state.mode = 'single';
-    document.getElementById('btn-single').classList.add('active');
-    document.getElementById('btn-compare').classList.remove('active');
-    document.querySelectorAll('.compare-only').forEach(el => el.classList.add('hidden'));
-  });
-
-  document.getElementById('btn-compare').addEventListener('click', () => {
-    state.mode = 'compare';
-    document.getElementById('btn-compare').classList.add('active');
-    document.getElementById('btn-single').classList.remove('active');
-    document.querySelectorAll('.compare-only').forEach(el => el.classList.remove('hidden'));
-  });
-
-  // k steppers — no input element, purely button-driven
-  document.getElementById('k-dec').addEventListener('click', () => {  setK(state.k - 1); });
-  document.getElementById('k-inc').addEventListener('click', () => {  setK(state.k + 1); });
-
-  // File uploads
-  setupUpload('file1', 'fname1', 'zone1');
-  setupUpload('file2', 'fname2', 'zone2');
-
-  // Sound toggle
-  const soundBtn = document.getElementById('sound-toggle');
-  soundBtn.addEventListener('click', () => {
-    state.soundEnabled = !state.soundEnabled;
-    soundBtn.setAttribute('aria-pressed', String(state.soundEnabled));
-    if (state.soundEnabled)
-  });
-
-  // Run analysis
-  document.getElementById('run-btn').addEventListener('click', runAnalysis);
-
-  // Empty state demo graph
-  drawEmptyStateGraph();
-
-  // Orb animation
-  animateBgOrbs();
-
-  // Highlight default k=1 row
-  setK(1);
-});
