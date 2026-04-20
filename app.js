@@ -443,18 +443,6 @@ function drawEmptyStateGraph() {
     .transition().delay((_, i) => i * 90 + 360).duration(300)
     .style('opacity', 1);
 
-  const colorSets = [
-    ['#4f73ff','#7c5cfc','#0d9e8a','#e67e22','#7c5cfc','#4f73ff'],
-    ['#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#4f73ff','#7c5cfc'],
-    ['#0d9e8a','#e67e22','#4f73ff','#7c5cfc','#0d9e8a','#e67e22'],
-  ];
-  let step = 0;
-  setInterval(() => {
-    step = (step + 1) % colorSets.length;
-    svg.selectAll('circle')
-      .transition().duration(900).ease(d3.easeCubicInOut)
-      .attr('fill', (_, i) => colorSets[step][i]);
-  }, 2400);
 }
 
 // ---- DEGREE TABLE ------------------------------------------
