@@ -102,16 +102,17 @@ function parseGraph(text) {
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-// FIX: maxIter now defaults to null (resolved to n inside the function).
-// This ensures iterations scale with graph size rather than being capped
-// at an arbitrary 12. The loop also breaks BEFORE pushing the duplicate
-// stable snapshot, so the iterations array only contains meaningful steps.
+// FIX 1: maxIter now defaults to null and is resolved to n inside the
+//         function. WL is guaranteed to stabilise in at most n rounds,
+//         so n is the correct upper bound (not the old hardcoded 12).
+// FIX 2: convergence is checked BEFORE pushing the new snapshot, so we
+//         never append a redundant duplicate of the stable coloring.
 function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // FIX: true upper bound is n rounds (WL stabilises in at most n iterations)
-  const effectiveMaxIter = maxIter !== null ? maxIter : n;
+  // FIX 1: use n as the true upper bound when no explicit limit is given
+  const effectiveMaxIter = (maxIter !== null) ? maxIter : n;
 
   // Build all ordered k-tuples (n^k total)
   let tuples = [[]];
@@ -194,12 +195,10 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    // FIX: check convergence BEFORE pushing, so we don't add a redundant
-    // duplicate snapshot. If nothing changed, the coloring has stabilised
-    // and we stop here — making iterations.length reflect the true count.
+    // FIX 2: check convergence BEFORE pushing — if nothing changed the
+    //         coloring has stabilised; break without adding a duplicate snapshot.
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
     colors = newColors;
-
     if (!changed) break;
 
     iterations.push(nodeColorsFromTupleColors(newColors));
@@ -216,7 +215,7 @@ function certificate(tupleColorMap) {
 }
 
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
-// FIX: removed hardcoded maxIter = 12; now passes null so runKWL uses n.
+// FIX: removed hardcoded maxIter = 12 — now passes null so runKWL uses n.
 function compareGraphs(g1, g2, k) {
   const sharedMap = new Map();
   const r1 = runKWL(g1, k, null, sharedMap);
@@ -742,7 +741,7 @@ function showKWLError(msg) {
               <tr class="${state.k===2?'active-k':''}"><td>2</td><td>≤ 500</td><td>n²</td></tr>
               <tr class="${state.k===3?'active-k':''}"><td>3</td><td>≤ 100</td><td>n³</td></tr>
               <tr class="${state.k===4?'active-k':''}"><td>4</td><td>≤ 30</td><td>n⁴</td></tr>
-              <tr class="${state.k===5?'active-k',''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
+              <tr class="${state.k===5?'active-k':''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
             </tbody>
           </table>
         </div>
@@ -958,8 +957,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // k steppers — no input element, purely button-driven
-  document.getElementById('k-dec').addEventListener('click', () => {  setK(state.k - 1); });
-  document.getElementById('k-inc').addEventListener('click', () => {  setK(state.k + 1); });
+  document.getElementById('k-dec').addEventListener('click', () => { setK(state.k - 1); });
+  document.getElementById('k-inc').addEventListener('click', () => { setK(state.k + 1); });
 
   // File uploads
   setupUpload('file1', 'fname1', 'zone1');
