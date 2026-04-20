@@ -102,17 +102,24 @@ function parseGraph(text) {
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-// FIX 1: maxIter now defaults to null and is resolved to n inside the
-//         function. WL is guaranteed to stabilise in at most n rounds,
-//         so n is the correct upper bound (not the old hardcoded 12).
-// FIX 2: convergence is checked BEFORE pushing the new snapshot, so we
-//         never append a redundant duplicate of the stable coloring.
+// maxIter upper bound:
+//   k=1 → n       (1-WL stabilises in at most n rounds)
+//   k≥2 → min(n², 200)  (k-WL needs more rounds; cap for browser safety)
+// Convergence is checked BEFORE pushing so we never store a duplicate
+// stable snapshot — iterations.length reflects the true refinement count.
 function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // FIX 1: use n as the true upper bound when no explicit limit is given
-  const effectiveMaxIter = (maxIter !== null) ? maxIter : n;
+  // Correct upper bound per k
+  let effectiveMaxIter;
+  if (maxIter !== null) {
+    effectiveMaxIter = maxIter;
+  } else if (k === 1) {
+    effectiveMaxIter = n;                    // 1-WL: at most n rounds
+  } else {
+    effectiveMaxIter = Math.min(n * n, 200); // k-WL: larger bound, browser-safe cap
+  }
 
   // Build all ordered k-tuples (n^k total)
   let tuples = [[]];
@@ -195,8 +202,8 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    // FIX 2: check convergence BEFORE pushing — if nothing changed the
-    //         coloring has stabilised; break without adding a duplicate snapshot.
+    // Check convergence BEFORE pushing — if nothing changed the coloring
+    // has stabilised; break without adding a redundant duplicate snapshot.
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
     colors = newColors;
     if (!changed) break;
@@ -215,7 +222,6 @@ function certificate(tupleColorMap) {
 }
 
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
-// FIX: removed hardcoded maxIter = 12 — now passes null so runKWL uses n.
 function compareGraphs(g1, g2, k) {
   const sharedMap = new Map();
   const r1 = runKWL(g1, k, null, sharedMap);
@@ -395,12 +401,11 @@ function drawGraph(svgEl, graph, initialColors) {
   };
 }
 
-// ---- EMPTY STATE ANIMATED GRAPH (FIX: explicit dimensions) ----
+// ---- EMPTY STATE ANIMATED GRAPH ----------------------------
 function drawEmptyStateGraph() {
   const container = document.getElementById('empty-graph');
   if (!container) return;
 
-  // FIX: must set explicit size before D3 appends SVG
   container.style.width  = '220px';
   container.style.height = '180px';
 
@@ -452,7 +457,6 @@ function drawEmptyStateGraph() {
     .style('opacity', 0)
     .transition().delay((_, i) => i * 90 + 360).duration(300)
     .style('opacity', 1);
-
 }
 
 // ---- DEGREE TABLE ------------------------------------------
