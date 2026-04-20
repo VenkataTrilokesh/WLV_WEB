@@ -1,68 +1,124 @@
-<div class="static-page">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Isomorphism — Graph Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
 
-  <div class="static-hero anim-slide-up">
-    <h2>Graph Isomorphism</h2>
-    <p>Two graphs are isomorphic if they are structurally identical — the same connections, just with the nodes drawn or labelled differently. Think of it as two different maps of the same city.</p>
+  <div class="bg-canvas">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
   </div>
 
-  <div class="static-section anim-slide-up anim-d1">
-    <h3>What does "isomorphic" actually mean?</h3>
-    <p>Imagine two social networks. Even if the people have different names, if every friendship pairing is identical, the two networks are isomorphic — they are the same underlying structure in disguise.</p>
-    <p>This matters in chemistry (two molecules with the same structure behave the same way), network analysis, and pattern matching.</p>
-  </div>
+  <div class="page-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <circle cx="8"  cy="8"  r="4" fill="var(--accent-primary)" opacity="0.9"/>
+            <circle cx="20" cy="8"  r="4" fill="var(--accent-violet)"  opacity="0.9"/>
+            <circle cx="14" cy="20" r="4" fill="var(--accent-teal)"    opacity="0.9"/>
+            <line x1="8"  y1="8"  x2="20" y2="8"  stroke="var(--text-tertiary)" stroke-width="1.5"/>
+            <line x1="8"  y1="8"  x2="14" y2="20" stroke="var(--text-tertiary)" stroke-width="1.5"/>
+            <line x1="20" y1="8"  x2="14" y2="20" stroke="var(--text-tertiary)" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <span class="brand-tag">Weisfeiler–Lehman Engine</span>
+          <h1 class="brand-title">Graph<em>Analyzer</em></h1>
+        </div>
+      </div>
+      <nav class="topbar-nav">
+        <a href="index.html"       class="nav-link">k-WL Test</a>
+        <a href="isomorphism.html" class="nav-link active">Isomorphism</a>
+        <a href="explain.html"     class="nav-link">Explainer</a>
+        <div class="status-chip">
+          <span class="pulse-dot"></span>
+          Interactive
+        </div>
+      </nav>
+    </header>
 
-  <div class="static-section anim-slide-up anim-d2">
-    <h3>How hard is it to check?</h3>
-    <p>Checking whether two graphs are isomorphic is famously tricky — it sits in a grey zone between "easy" and "hard" problems in computer science. No one has proven it's easy, and no one has proven it's hard either.</p>
-    <div class="algo-steps" style="margin-top:16px">
-      <div class="algo-step">
-        <div class="step-num" style="background:linear-gradient(135deg,var(--success),#16a085)">Fast</div>
-        <div class="step-body">
-          <strong>Simple graph types</strong>
-          <p>Certain shapes — like trees or road-map-style graphs — can be checked quickly and efficiently.</p>
+    <div class="static-page">
+
+      <div class="static-hero anim-slide-up">
+        <h2>Graph Isomorphism</h2>
+        <p>Two graphs are isomorphic if there exists a bijection between their node sets that preserves all edges. Determining isomorphism is one of the most famous open problems in computational complexity.</p>
+      </div>
+
+      <div class="static-section anim-slide-up anim-d1">
+        <h3>What is Graph Isomorphism?</h3>
+        <p>Formally, graphs G = (V, E) and H = (V', E') are isomorphic (G ≅ H) if there exists a bijection φ: V → V' such that (u, v) ∈ E if and only if (φ(u), φ(v)) ∈ E'. In other words, they are the same graph drawn differently — only node labels differ.</p>
+        <p>Isomorphism is crucial in chemistry (detecting identical molecules), network analysis (identifying structurally equivalent systems), and computer science (pattern matching in graphs).</p>
+      </div>
+
+      <div class="static-section anim-slide-up anim-d2">
+        <h3>Computational Complexity</h3>
+        <p>Graph Isomorphism (GI) is one of the few natural problems known to be in NP but not known to be either NP-complete or in P. This unique status has made it a landmark problem in complexity theory.</p>
+        <p>In 2015, László Babai announced a quasipolynomial-time algorithm (n^polylog(n)), a breakthrough after decades where the best known bound was subexponential. Practical solvers like nauty, Traces, and bliss run extremely fast on most real-world graphs.</p>
+        <div class="algo-steps" style="margin-top:16px">
+          <div class="algo-step">
+            <div class="step-num" style="background:linear-gradient(135deg,var(--success),#16a085)">P</div>
+            <div class="step-body">
+              <strong>Polynomial-time solvable special cases</strong>
+              <p>Trees, planar graphs, graphs of bounded treewidth, interval graphs, and graphs of bounded degree all admit polynomial-time isomorphism algorithms.</p>
+            </div>
+          </div>
+          <div class="algo-step">
+            <div class="step-num" style="background:linear-gradient(135deg,var(--warning),#d97706)">GI</div>
+            <div class="step-body">
+              <strong>General case — quasipolynomial</strong>
+              <p>Babai's algorithm runs in exp(O(log n)³) time. The best practical solvers (nauty, bliss) are often polynomial in practice despite worst-case exponential bounds.</p>
+            </div>
+          </div>
+          <div class="algo-step">
+            <div class="step-num" style="background:linear-gradient(135deg,var(--danger),#c0392b)">NP</div>
+            <div class="step-body">
+              <strong>Subgraph isomorphism — NP-complete</strong>
+              <p>Asking whether G contains a subgraph isomorphic to H is NP-complete (generalises clique, Hamiltonian path, and other NP-hard problems).</p>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="algo-step">
-        <div class="step-num" style="background:linear-gradient(135deg,var(--warning),#d97706)">Mid</div>
-        <div class="step-body">
-          <strong>General graphs</strong>
-          <p>A 2015 breakthrough produced a near-fast algorithm. Practical tools like nauty handle most real-world graphs efficiently.</p>
-        </div>
+
+      <div class="static-section anim-slide-up anim-d3">
+        <h3>Necessary Conditions (Invariants)</h3>
+        <p>Before running WL or exact solvers, quick invariant checks can rule out isomorphism cheaply. All of the following must match for isomorphic graphs:</p>
+        <ul>
+          <li>Same number of nodes and edges</li>
+          <li>Same degree sequence (sorted list of node degrees)</li>
+          <li>Same number of connected components</li>
+          <li>Same clustering coefficient distribution</li>
+          <li>Same eigenvalue spectrum of the adjacency matrix (spectral equivalence)</li>
+          <li>Same k-WL certificate for all k (necessary but not sufficient)</li>
+        </ul>
+        <p>The analyzer checks degree sequence automatically. A mismatch is a conclusive <em>certificate of non-isomorphism</em>.</p>
       </div>
-      <div class="algo-step">
-        <div class="step-num" style="background:linear-gradient(135deg,var(--danger),#c0392b)">Hard</div>
-        <div class="step-body">
-          <strong>Subgraph search</strong>
-          <p>Asking "does graph G contain graph H somewhere inside it?" is provably hard — this version of the problem is NP-complete.</p>
-        </div>
+
+      <div class="static-section anim-slide-up anim-d4">
+        <h3>WL as an Isomorphism Test</h3>
+        <p>The Weisfeiler–Lehman test is a sound but incomplete isomorphism test:</p>
+        <ul>
+          <li><strong>Sound:</strong> if k-WL says "different", the graphs are definitely non-isomorphic.</li>
+          <li><strong>Incomplete:</strong> if k-WL says "same", the graphs may or may not be isomorphic — WL cannot distinguish certain pairs (e.g. the Cai–Fürer–Immerman (CFI) graph families specifically constructed to fool k-WL).</li>
+        </ul>
+        <p>Increasing k raises the power: 3-WL already handles most practical graphs encountered in chemistry and network science. For complete isomorphism testing, use exact solvers like nauty.</p>
       </div>
+
+      <div class="static-section anim-slide-up">
+        <h3>Compare Two Graphs</h3>
+        <p>Use <strong>Compare mode</strong> in the <a href="index.html" style="color:var(--accent-primary);font-weight:600">k-WL Analyzer</a> to upload two graphs and run the k-WL isomorphism test. The tool reports the degree sequence comparison, the WL certificate match, and the exact iteration at which the refinements diverge.</p>
+      </div>
+
     </div>
   </div>
 
-  <div class="static-section anim-slide-up anim-d3">
-    <h3>Quick checks before a full test</h3>
-    <p>You can often rule out isomorphism cheaply, without running a full algorithm. If any of these don't match, the graphs are definitely different:</p>
-    <ul>
-      <li>Same number of nodes and edges</li>
-      <li>Same degree sequence — each node's number of connections, sorted</li>
-      <li>Same number of connected components</li>
-    </ul>
-    <p>A mismatch in any of these is a guaranteed proof the graphs are <em>not</em> isomorphic.</p>
-  </div>
-
-  <div class="static-section anim-slide-up anim-d4">
-    <h3>Where the WL test fits in</h3>
-    <p>The Weisfeiler–Lehman (WL) test is a fast way to compare graphs, but it's not perfect:</p>
-    <ul>
-      <li><strong>If WL says "different"</strong> — the graphs definitely are. No further checking needed.</li>
-      <li><strong>If WL says "same"</strong> — they probably are, but it's not guaranteed. Some rare graph pairs fool the test.</li>
-    </ul>
-    <p>Using a higher value of k makes the test stricter and catches more cases. For a guaranteed answer, exact solvers like nauty can be used.</p>
-  </div>
-
-  <div class="static-section anim-slide-up">
-    <h3>Try it yourself</h3>
-    <p>Use <strong>Compare mode</strong> in the <a href="index.html" style="color:var(--accent-primary);font-weight:600">k-WL Analyzer</a> to upload two graphs and see whether they match — including the exact point where their structure first differs.</p>
-  </div>
-
-</div>
+</body>
+</html>
