@@ -1,7 +1,3 @@
-/* ============================================================
-   app.js — k-WL Graph Analyzer
-   Complete algorithm + D3 visualization + UI logic
-   ============================================================ */
 
 'use strict';
 
@@ -9,7 +5,7 @@
 const state = {
   mode: 'single',
   k: 1,
-  soundEnabled: true,
+  soundEnabled: false,
 };
 
 // ---- SAFE LIMITS for k-WL (n^k tuples) --------------------
@@ -24,53 +20,6 @@ const KWL_LIMITS = {
 function getMaxSafeN(k) {
   return KWL_LIMITS[k] ?? 10;
 }
-
-// ---- AUDIO ------------------------------------------------
-const Audio = (() => {
-  let ctx = null;
-  function getCtx() {
-    if (!ctx) {
-      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
-      catch (e) {}
-    }
-    return ctx;
-  }
-  function play(type) {
-    if (!state.soundEnabled) return;
-    try {
-      const c = getCtx();
-      if (!c) return;
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.connect(gain);
-      gain.connect(c.destination);
-      if (type === 'click') {
-        osc.frequency.setValueAtTime(520, c.currentTime);
-        gain.gain.setValueAtTime(0.04, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.08);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.08);
-      } else if (type === 'complete') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(440, c.currentTime);
-        osc.frequency.setValueAtTime(550, c.currentTime + 0.12);
-        osc.frequency.setValueAtTime(660, c.currentTime + 0.24);
-        gain.gain.setValueAtTime(0.05, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.5);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.5);
-      } else if (type === 'error') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(220, c.currentTime);
-        gain.gain.setValueAtTime(0.04, c.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.2);
-        osc.start(c.currentTime);
-        osc.stop(c.currentTime + 0.2);
-      }
-    } catch(e) {}
-  }
-  return { play };
-})();
 
 // ---- PROGRESS --------------------------------------------- 
 const Progress = {
@@ -93,6 +42,14 @@ const Progress = {
     }
   },
   hide() { this.el.classList.add('hidden'); }
+};
+
+// ---- AUDIO SYSTEM ------------------------------------------
+const Audio = {
+  play(name) {
+    // Sound system placeholder - can be extended with actual audio
+    // Currently a no-op to prevent errors
+  }
 };
 
 // ---- GRAPH PARSING ----------------------------------------
@@ -674,21 +631,25 @@ function renderResults(graphs, iterData, compareResult) {
     const maxDeg = Math.max(...Object.values(graph.adjacency).map(s => s.size), 0);
 
     panelEl.innerHTML = `
-      <div class="graph-panel-head">
-        <div>
-          <div class="graph-kicker">${label}</div>
-          <h4>${graph.n} nodes, ${graph.edges.length} edges</h4>
+      <div class="graph-panel-content">
+        <div class="graph-canvas" id="canvas-${gi}">
+          <svg class="graph-svg" id="svg-${gi}"></svg>
         </div>
-        <span class="panel-badge" id="panel-badge-${gi}">${cc} colors</span>
-      </div>
-      <div class="graph-canvas" id="canvas-${gi}">
-        <svg class="graph-svg" id="svg-${gi}"></svg>
-      </div>
-      <div class="graph-footer">
-        <span class="graph-chip">n = ${graph.n}</span>
-        <span class="graph-chip">m = ${graph.edges.length}</span>
-        <span class="graph-chip">Δ = ${maxDeg}</span>
-        <span class="graph-chip kwl-chip">${state.k}-WL</span>
+        <div class="graph-panel-text">
+          <div class="graph-panel-head">
+            <div>
+              <div class="graph-kicker">${label}</div>
+              <h4>${graph.n} nodes, ${graph.edges.length} edges</h4>
+            </div>
+            <span class="panel-badge" id="panel-badge-${gi}">${cc} colors</span>
+          </div>
+          <div class="graph-footer">
+            <span class="graph-chip">n = ${graph.n}</span>
+            <span class="graph-chip">m = ${graph.edges.length}</span>
+            <span class="graph-chip">Δ = ${maxDeg}</span>
+            <span class="graph-chip kwl-chip">${state.k}-WL</span>
+          </div>
+        </div>
       </div>
     `;
     graphGrid.appendChild(panelEl);
@@ -906,25 +867,20 @@ async function runAnalysis() {
     Audio.play('error');
     console.error(err);
   } finally {
-    runBtn.classList.remove('loading');
-    runBtn.querySelector('.run-btn-label').textContent = 'Run Analysis';
+    if (runBtn) {
+      runBtn.classList.remove('loading');
+      runBtn.querySelector('.run-btn-label').textContent = 'Run Analysis';
+    }
   }
 }
 
-// ---- K VALUE DISPLAY (replaces input[type=number]) ---------
-/*
-  FIX: The original code used a hidden <input type="number"> behind a
-  styled overlay. The native browser spinner arrows were invisible but
-  still intercepted wheel/keyboard events, silently changing the value
-  without updating the display. Replaced with a plain <div> display
-  driven entirely by the +/− buttons.
-*/
 function setK(val) {
   val = Math.max(1, Math.min(5, val));
   state.k = val;
 
   const display = document.getElementById('k-display');
   display.textContent = val;
+  display.setAttribute('aria-valuenow', val);
 
   // Trigger bump animation
   display.classList.remove('bump');
@@ -937,13 +893,6 @@ function setK(val) {
   });
 }
 
-// ---- UPLOAD ZONE SETUP (FIX: label-based click forwarding) -
-/*
-  FIX: The original used an absolutely-positioned input covering the
-  zone. Child elements with z-index > 0 (icons, text) blocked the click
-  from reaching the input. Fixed by using a <label for="fileN"> that
-  covers the zone, with the input tucked away but still functional.
-*/
 function setupUpload(inputId, fnameId, zoneId) {
   const input = document.getElementById(inputId);
   const fname = document.getElementById(fnameId);
@@ -970,7 +919,6 @@ function setupUpload(inputId, fnameId, zoneId) {
       input.files = dt.files;
       fname.textContent = file.name;
       zone.classList.add('loaded');
-      Audio.play('click');
     }
   });
 }
@@ -997,7 +945,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mode toggle
   document.getElementById('btn-single').addEventListener('click', () => {
-    Audio.play('click');
     state.mode = 'single';
     document.getElementById('btn-single').classList.add('active');
     document.getElementById('btn-compare').classList.remove('active');
@@ -1005,7 +952,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btn-compare').addEventListener('click', () => {
-    Audio.play('click');
     state.mode = 'compare';
     document.getElementById('btn-compare').classList.add('active');
     document.getElementById('btn-single').classList.remove('active');
@@ -1013,8 +959,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // k steppers — no input element, purely button-driven
-  document.getElementById('k-dec').addEventListener('click', () => { Audio.play('click'); setK(state.k - 1); });
-  document.getElementById('k-inc').addEventListener('click', () => { Audio.play('click'); setK(state.k + 1); });
+  document.getElementById('k-dec').addEventListener('click', () => {  setK(state.k - 1); });
+  document.getElementById('k-inc').addEventListener('click', () => {  setK(state.k + 1); });
 
   // File uploads
   setupUpload('file1', 'fname1', 'zone1');
@@ -1022,14 +968,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Sound toggle
   const soundBtn = document.getElementById('sound-toggle');
-  soundBtn.addEventListener('click', () => {
-    state.soundEnabled = !state.soundEnabled;
-    soundBtn.setAttribute('aria-pressed', String(state.soundEnabled));
-    if (state.soundEnabled) Audio.play('click');
-  });
+  if (soundBtn) {
+    soundBtn.addEventListener('click', () => {
+      state.soundEnabled = !state.soundEnabled;
+      soundBtn.setAttribute('aria-pressed', String(state.soundEnabled));
+      if (state.soundEnabled) Audio.play('toggle');
+    });
+  }
 
   // Run analysis
-  document.getElementById('run-btn').addEventListener('click', runAnalysis);
+  const runBtn = document.getElementById('run-btn');
+  if (runBtn) {
+    runBtn.addEventListener('click', runAnalysis);
+  }
 
   // Empty state demo graph
   drawEmptyStateGraph();
