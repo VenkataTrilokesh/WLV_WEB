@@ -1,4 +1,3 @@
-
 'use strict';
 
 // ---- STATE ------------------------------------------------
@@ -103,9 +102,16 @@ function parseGraph(text) {
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
+// FIX: maxIter now defaults to null (resolved to n inside the function).
+// This ensures iterations scale with graph size rather than being capped
+// at an arbitrary 12. The loop also breaks BEFORE pushing the duplicate
+// stable snapshot, so the iterations array only contains meaningful steps.
+function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
+
+  // FIX: true upper bound is n rounds (WL stabilises in at most n iterations)
+  const effectiveMaxIter = maxIter !== null ? maxIter : n;
 
   // Build all ordered k-tuples (n^k total)
   let tuples = [[]];
@@ -165,7 +171,7 @@ function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
 
   const iterations = [nodeColorsFromTupleColors(colors)];
 
-  for (let iter = 0; iter < maxIter; iter++) {
+  for (let iter = 0; iter < effectiveMaxIter; iter++) {
     const newColors = {};
 
     for (const t of tuples) {
@@ -188,11 +194,15 @@ function runKWL(graph, k, maxIter = 12, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    iterations.push(nodeColorsFromTupleColors(newColors));
-
+    // FIX: check convergence BEFORE pushing, so we don't add a redundant
+    // duplicate snapshot. If nothing changed, the coloring has stabilised
+    // and we stop here — making iterations.length reflect the true count.
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
     colors = newColors;
+
     if (!changed) break;
+
+    iterations.push(nodeColorsFromTupleColors(newColors));
   }
 
   return { iterations, _finalTupleColors: colors, tuples };
@@ -206,10 +216,11 @@ function certificate(tupleColorMap) {
 }
 
 // ---- COMPARE TWO GRAPHS ------------------------------------ 
-function compareGraphs(g1, g2, k, maxIter = 12) {
+// FIX: removed hardcoded maxIter = 12; now passes null so runKWL uses n.
+function compareGraphs(g1, g2, k) {
   const sharedMap = new Map();
-  const r1 = runKWL(g1, k, maxIter, sharedMap);
-  const r2 = runKWL(g2, k, maxIter, sharedMap);
+  const r1 = runKWL(g1, k, null, sharedMap);
+  const r2 = runKWL(g2, k, null, sharedMap);
 
   const degSeq = graph =>
     Array.from({ length: graph.n }, (_, i) => graph.adjacency[i].size).sort((a, b) => a - b);
@@ -731,7 +742,7 @@ function showKWLError(msg) {
               <tr class="${state.k===2?'active-k':''}"><td>2</td><td>≤ 500</td><td>n²</td></tr>
               <tr class="${state.k===3?'active-k':''}"><td>3</td><td>≤ 100</td><td>n³</td></tr>
               <tr class="${state.k===4?'active-k':''}"><td>4</td><td>≤ 30</td><td>n⁴</td></tr>
-              <tr class="${state.k===5?'active-k':''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
+              <tr class="${state.k===5?'active-k',''}"><td>5</td><td>≤ 15</td><td>n⁵</td></tr>
             </tbody>
           </table>
         </div>
