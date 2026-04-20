@@ -201,10 +201,6 @@ a { color: inherit; text-decoration: none; }
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.brand-mark:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-sm);
-}
 
 .brand-tag {
   display: block;
@@ -853,7 +849,6 @@ a { color: inherit; text-decoration: none; }
   position: absolute;
   inset: 0;
   background: linear-gradient(160deg, rgba(255,255,255,0.2) 0%, transparent 50%);
-  animation: sheen 3s linear infinite;
 }
 
 @keyframes sheen {
@@ -955,6 +950,7 @@ a { color: inherit; text-decoration: none; }
 .empty-state {
   flex: 1;
   display: flex;
+  flex-direction: row;
   gap: 40px;
   align-items: center;
   justify-content: center;
@@ -976,7 +972,18 @@ a { color: inherit; text-decoration: none; }
   display: block;
 }
 
-.empty-copy { max-width: 380px; }
+.empty-copy { max-width: 380px; text-align: center; }
+
+.ready-visual {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+#ready-graph {
+  display: block;
+}
 
 .empty-copy h3 {
   font-family: 'Fraunces', serif;
@@ -1304,6 +1311,31 @@ a { color: inherit; text-decoration: none; }
   border-color: var(--border-med);
 }
 
+.graph-panel-content {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+}
+
+.graph-panel-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.graph-canvas {
+  height: 340px;
+  flex-shrink: 0;
+  width: 340px;
+  position: relative;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(79, 115, 255, 0.03), transparent 50%),
+    linear-gradient(180deg, #fbfcff 0%, #f5f7fc 100%);
+}
+
+.graph-svg { width: 100%; height: 100%; display: block; }
+
 .graph-panel-head {
   display: flex;
   align-items: flex-start;
@@ -1346,22 +1378,13 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 
-.graph-canvas {
-  height: 340px;
-  position: relative;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(79, 115, 255, 0.03), transparent 50%),
-    linear-gradient(180deg, #fbfcff 0%, #f5f7fc 100%);
-}
-
-.graph-svg { width: 100%; height: 100%; display: block; }
-
 .graph-footer {
   padding: 10px 16px;
   border-top: 1px solid var(--border-light);
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: auto;
 }
 
 .graph-chip {
