@@ -138,10 +138,12 @@ function run1WL(graph, sharedColorMap = null) {
       if (newColors[v] !== colors[v]) changed = true;
     }
 
-    colors = newColors;
-
+    // BUG FIX: only push snapshot if something actually changed.
+    // Previously snapshots were pushed unconditionally, causing duplicate
+    // stable iterations to appear in the UI tabs.
     if (!changed) break;
 
+    colors = newColors;
     snapshots.push(Object.fromEntries(Array.from({length: n}, (_, i) => [i, colors[i]])));
   }
 
@@ -243,9 +245,14 @@ function runKWL(graph, k, sharedHashMap = null) {
     }
 
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
-    colors = newColors;
 
+    // BUG FIX: previously `colors = newColors` and `iterations.push(...)` both
+    // happened before the `if (!changed) break` check, so every iteration up to
+    // MAX_ITER was recorded even when the coloring had already stabilised.
+    // Now we break BEFORE updating state or pushing a snapshot when nothing changed.
     if (!changed) break;
+
+    colors = newColors;
     iterations.push(nodeColorsFromTupleColors(newColors));
   }
 
