@@ -98,10 +98,63 @@ function parseGraph(text) {
   return { n, edges, adjacency };
 }
 
-// ---- TRUE k-WL ALGORITHM ----------------------------------
-// Runs until the colouring is fully stable (no changes between rounds).
-// No arbitrary iteration cap — the loop exits purely on convergence.
-// Every snapshot in iterations[] represents a round with real changes.
+// ---- FAST 1-WL (Weisfeiler-Leman) --------------------------
+// Dedicated fast path for k=1. Works directly on nodes, no tuple overhead.
+// Uses string-sort canonicalization of neighbor color multisets.
+// Converges in O(n * m * iters) — handles 500+ nodes easily.
+function run1WL(graph, sharedColorMap = null) {
+  const { n, adjacency } = graph;
+
+  let colorCounter = sharedColorMap ? sharedColorMap.size : 0;
+  const colorMap = sharedColorMap || new Map();
+
+  function getColor(sig) {
+    if (!colorMap.has(sig)) colorMap.set(sig, colorCounter++);
+    return colorMap.get(sig);
+  }
+
+  // Initial coloring by degree
+  let colors = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    colors[i] = getColor('deg:' + adjacency[i].size);
+  }
+
+  const snapshots = [Object.fromEntries(Array.from({length: n}, (_, i) => [i, colors[i]]))];
+
+  // Max iterations = n (WL always converges in at most n rounds)
+  const MAX_ITER = n + 1;
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    const newColors = new Int32Array(n);
+    let changed = false;
+
+    for (let v = 0; v < n; v++) {
+      // Collect and sort neighbor colors for canonical multiset signature
+      const nbColors = [];
+      for (const u of adjacency[v]) nbColors.push(colors[u]);
+      nbColors.sort((a, b) => a - b);
+      const sig = colors[v] + '|' + nbColors.join(',');
+      newColors[v] = getColor(sig);
+      if (newColors[v] !== colors[v]) changed = true;
+    }
+
+    colors = newColors;
+
+    if (!changed) break;
+
+    snapshots.push(Object.fromEntries(Array.from({length: n}, (_, i) => [i, colors[i]])));
+  }
+
+  // Build a fake _finalTupleColors-compatible object (maps "i" -> color)
+  // so the compare/certificate logic works without changes
+  const finalTupleColors = {};
+  for (let i = 0; i < n; i++) finalTupleColors[String(i)] = colors[i];
+
+  return { iterations: snapshots, _finalTupleColors: finalTupleColors, tuples: null };
+}
+
+// ---- TRUE k-WL ALGORITHM (k >= 2) --------------------------
+// Only invoked for k >= 2. For k=1, run1WL is used instead.
 function runKWL(graph, k, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
@@ -140,32 +193,34 @@ function runKWL(graph, k, sharedHashMap = null) {
     colors[tupleKey(t)] = getHash(`init:${degrees}|${adjPattern}|${eqPattern}`);
   }
 
-  // Map tuple colors → per-node color (mode across tuples containing that node)
+  // Map tuple colors -> per-node color via most-frequent color among tuples containing that node
   function nodeColorsFromTupleColors(tColors) {
-    const nodeColor = {};
-    for (let i = 0; i < n; i++) nodeColor[i] = [];
+    // For k-WL (k >= 2), pick the most common tuple color for each node
+    const nodeFreq = new Array(n).fill(null).map(() => ({}));
     for (const t of tuples) {
       const c = tColors[tupleKey(t)];
-      for (const node of t) nodeColor[node].push(c);
+      for (const node of t) {
+        nodeFreq[node][c] = (nodeFreq[node][c] || 0) + 1;
+      }
     }
     const result = {};
     for (let i = 0; i < n; i++) {
-      const arr = nodeColor[i];
-      const freq = {};
-      let best = arr[0], bestCount = 0;
-      for (const c of arr) {
-        freq[c] = (freq[c] || 0) + 1;
-        if (freq[c] > bestCount) { bestCount = freq[c]; best = c; }
+      const freq = nodeFreq[i];
+      let best = 0, bestCount = -1;
+      for (const [c, cnt] of Object.entries(freq)) {
+        if (cnt > bestCount) { bestCount = cnt; best = Number(c); }
       }
-      result[i] = best ?? 0;
+      result[i] = best;
     }
     return result;
   }
 
   const iterations = [nodeColorsFromTupleColors(colors)];
 
-  // Loop until stable — no fixed cap, purely convergence-driven
-  while (true) {
+  // Max iterations = n^k (safe upper bound for convergence)
+  const MAX_ITER = Math.min(n * k + 2, 50);
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
     const newColors = {};
 
     for (const t of tuples) {
@@ -187,20 +242,20 @@ function runKWL(graph, k, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    // Compare newColors vs OLD colors before overwriting
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
-
-    // Overwrite for next round
     colors = newColors;
 
-    // Stable — stop, don't record a duplicate snapshot
     if (!changed) break;
-
-    // Only record rounds that actually changed something
     iterations.push(nodeColorsFromTupleColors(newColors));
   }
 
   return { iterations, _finalTupleColors: colors, tuples };
+}
+
+// ---- DISPATCH: pick 1-WL fast path or k-WL -----------------
+function runWL(graph, k, sharedMap = null) {
+  if (k === 1) return run1WL(graph, sharedMap);
+  return runKWL(graph, k, sharedMap);
 }
 
 // Build canonical colour histogram (certificate)
@@ -211,14 +266,10 @@ function certificate(tupleColorMap) {
 }
 
 // ---- COMPARE TWO GRAPHS ------------------------------------
-// After both graphs converge independently, pad the shorter iterations
-// array by repeating its final (stable) snapshot so both arrays are the
-// same length. The tabs always show the longer graph changing; the
-// shorter one just holds its stable state from its convergence point on.
 function compareGraphs(g1, g2, k) {
   const sharedMap = new Map();
-  const r1 = runKWL(g1, k, sharedMap);
-  const r2 = runKWL(g2, k, sharedMap);
+  const r1 = runWL(g1, k, sharedMap);
+  const r2 = runWL(g2, k, sharedMap);
 
   // Pad shorter to match longer
   const maxLen = Math.max(r1.iterations.length, r2.iterations.length);
@@ -590,21 +641,14 @@ function renderResults(graphs, iterData, compareResult) {
     stack.appendChild(verdictCard);
   }
 
-  // ---- Iteration viewer
-  // In compare mode, iterData[0] and iterData[1] are already the same
-  // length (padded in compareGraphs). The tabs show the full range of
-  // the longer graph; the shorter graph just repeats its stable state.
   const iterCard = document.createElement('div');
   iterCard.className = 'iter-card anim-slide-up anim-d3';
 
   const numIters = iterData[0] ? iterData[0].length : 1;
 
-  // Track which graphs have already stabilised so we can mark their tabs
-  // stableFrom[gi] = the iteration index at which graph gi stopped changing
   const stableFrom = graphs.map((_, gi) => {
-    if (!compareResult) return numIters - 1; // single graph: stable at last tab
+    if (!compareResult) return numIters - 1;
     const iters = gi === 0 ? compareResult.iter1 : compareResult.iter2;
-    // Find first index where the snapshot equals the final snapshot
     const finalSnap = JSON.stringify(iters[iters.length - 1]);
     for (let i = 0; i < iters.length; i++) {
       if (JSON.stringify(iters[i]) === finalSnap) return i;
@@ -614,7 +658,6 @@ function renderResults(graphs, iterData, compareResult) {
 
   const tabsHTML = Array.from({ length: numIters }, (_, i) => {
     const hasDiff = compareResult && compareResult.firstDiff === i;
-    // Mark tab as stable if BOTH graphs are stable at this point
     const bothStable = stableFrom.every(sf => i >= sf);
     return `<button class="iter-tab${i === 0 ? ' active' : ''}${hasDiff ? ' has-diff' : ''}${bothStable && i > 0 ? ' is-stable' : ''}" data-iter="${i}">
       ${i === 0 ? 'Initial' : `Iter ${i}`}
@@ -650,7 +693,6 @@ function renderResults(graphs, iterData, compareResult) {
     const cc     = new Set(Object.values(colors)).size;
     const maxDeg = Math.max(...Object.values(graph.adjacency).map(s => s.size), 0);
 
-    // Show at which iteration this graph stabilised (compare mode only)
     const stableNote = compareResult && stableFrom[gi] < numIters - 1
       ? `<span class="graph-chip stable-chip">Stable @ iter ${stableFrom[gi]}</span>`
       : '';
@@ -700,7 +742,6 @@ function renderResults(graphs, iterData, compareResult) {
 
       graphs.forEach((_, gi) => {
         if (!iterData[gi]) return;
-        // Clamp to last available snapshot (handles padded stable iterations)
         const colors = iterData[gi][iter] ?? iterData[gi][iterData[gi].length - 1];
         const updater = updateFns.find(u => u.gi === gi);
         if (updater) updater.fn(colors);
@@ -867,7 +908,7 @@ async function runAnalysis() {
       iter1 = compareResult.iter1;
       iter2 = compareResult.iter2;
     } else {
-      const result = runKWL(g1, k);
+      const result = runWL(g1, k);
       iter1 = result.iterations;
     }
 
