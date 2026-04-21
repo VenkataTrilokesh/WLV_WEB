@@ -46,8 +46,7 @@ const Progress = {
 // ---- AUDIO SYSTEM ------------------------------------------
 const Audio = {
   play(name) {
-    // Sound system placeholder - can be extended with actual audio
-    // Currently a no-op to prevent errors
+    // Sound system placeholder
   }
 };
 
@@ -65,7 +64,6 @@ function parseGraph(text) {
   let n = 0;
   let edgeStart = 0;
 
-  // Detect optional "n m" header (exactly 2 positive integers on first line)
   const firstParts = lines[0].split(/\s+/).map(Number);
   if (
     firstParts.length === 2 &&
@@ -89,7 +87,6 @@ function parseGraph(text) {
     n = Math.max(n, u + 1, v + 1);
   }
 
-  // Ensure every node index 0..n-1 exists in adjacency
   for (let i = 0; i < n; i++) {
     if (!adjacency[i]) adjacency[i] = new Set();
   }
@@ -102,21 +99,14 @@ function parseGraph(text) {
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-// The loop runs until the tuple colouring is fully stable (no changes
-// between consecutive rounds). The convergence check compares newColors
-// against the OLD colors BEFORE overwriting — so it is always a genuine
-// before/after comparison. The upper-bound safety cap is 1000 to prevent
-// an infinite loop on pathological inputs while never artificially
-// truncating normal graphs.
-function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
+// Runs until the colouring is fully stable (no changes between rounds).
+// No arbitrary iteration cap — the loop exits purely on convergence.
+// Every snapshot in iterations[] represents a round with real changes.
+function runKWL(graph, k, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Safety cap: 1000 is far beyond any real-world convergence point
-  // but prevents a browser hang if something goes wrong.
-  const effectiveMaxIter = (maxIter !== null) ? maxIter : 1000;
-
-  // Build all ordered k-tuples (n^k total)
+  // Build all ordered k-tuples
   let tuples = [[]];
   for (let d = 0; d < k; d++) {
     const next = [];
@@ -135,7 +125,7 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
 
   const tupleKey = t => t.join(',');
 
-  // Initial colouring: encode adjacency pattern + degree sequence + equality pattern within tuple
+  // Initial colouring
   let colors = {};
   for (const t of tuples) {
     const degrees = t.map(v => adjacency[v].size).join(',');
@@ -174,12 +164,12 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
 
   const iterations = [nodeColorsFromTupleColors(colors)];
 
-  for (let iter = 0; iter < effectiveMaxIter; iter++) {
+  // Loop until stable — no fixed cap, purely convergence-driven
+  while (true) {
     const newColors = {};
 
     for (const t of tuples) {
       const tk = tupleKey(t);
-      // For each position i, collect colors of tuples formed by swapping t[i] with each neighbor
       const neighborMultiset = [];
       for (let i = 0; i < k; i++) {
         const nbrs = Array.from(adjacency[t[i]]).sort((a, b) => a - b);
@@ -197,18 +187,16 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    // Check convergence against OLD colors BEFORE overwriting.
-    // If nothing changed the partition is stable — stop here and do NOT
-    // push a duplicate snapshot. Every entry in iterations[] is a round
-    // that actually changed something.
+    // Compare newColors vs OLD colors before overwriting
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
 
-    // NOW update colors for the next round
+    // Overwrite for next round
     colors = newColors;
 
+    // Stable — stop, don't record a duplicate snapshot
     if (!changed) break;
 
-    // Only push when there was a real change
+    // Only record rounds that actually changed something
     iterations.push(nodeColorsFromTupleColors(newColors));
   }
 
@@ -222,11 +210,24 @@ function certificate(tupleColorMap) {
   return Object.entries(freq).map(([c, cnt]) => `${c}:${cnt}`).sort().join(',');
 }
 
-// ---- COMPARE TWO GRAPHS ------------------------------------ 
+// ---- COMPARE TWO GRAPHS ------------------------------------
+// After both graphs converge independently, pad the shorter iterations
+// array by repeating its final (stable) snapshot so both arrays are the
+// same length. The tabs always show the longer graph changing; the
+// shorter one just holds its stable state from its convergence point on.
 function compareGraphs(g1, g2, k) {
   const sharedMap = new Map();
-  const r1 = runKWL(g1, k, null, sharedMap);
-  const r2 = runKWL(g2, k, null, sharedMap);
+  const r1 = runKWL(g1, k, sharedMap);
+  const r2 = runKWL(g2, k, sharedMap);
+
+  // Pad shorter to match longer
+  const maxLen = Math.max(r1.iterations.length, r2.iterations.length);
+  while (r1.iterations.length < maxLen) {
+    r1.iterations.push(r1.iterations[r1.iterations.length - 1]);
+  }
+  while (r2.iterations.length < maxLen) {
+    r2.iterations.push(r2.iterations[r2.iterations.length - 1]);
+  }
 
   const degSeq = graph =>
     Array.from({ length: graph.n }, (_, i) => graph.adjacency[i].size).sort((a, b) => a - b);
@@ -393,7 +394,6 @@ function drawGraph(svgEl, graph, initialColors) {
     nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Return a function that re-colors nodes without restarting the simulation
   return function updateColors(newColors) {
     nodeG.each(function(d) { d.label = newColors[d.id] ?? 0; });
     nodeG.select('circle')
@@ -590,13 +590,33 @@ function renderResults(graphs, iterData, compareResult) {
     stack.appendChild(verdictCard);
   }
 
+  // ---- Iteration viewer
+  // In compare mode, iterData[0] and iterData[1] are already the same
+  // length (padded in compareGraphs). The tabs show the full range of
+  // the longer graph; the shorter graph just repeats its stable state.
   const iterCard = document.createElement('div');
   iterCard.className = 'iter-card anim-slide-up anim-d3';
 
   const numIters = iterData[0] ? iterData[0].length : 1;
+
+  // Track which graphs have already stabilised so we can mark their tabs
+  // stableFrom[gi] = the iteration index at which graph gi stopped changing
+  const stableFrom = graphs.map((_, gi) => {
+    if (!compareResult) return numIters - 1; // single graph: stable at last tab
+    const iters = gi === 0 ? compareResult.iter1 : compareResult.iter2;
+    // Find first index where the snapshot equals the final snapshot
+    const finalSnap = JSON.stringify(iters[iters.length - 1]);
+    for (let i = 0; i < iters.length; i++) {
+      if (JSON.stringify(iters[i]) === finalSnap) return i;
+    }
+    return iters.length - 1;
+  });
+
   const tabsHTML = Array.from({ length: numIters }, (_, i) => {
     const hasDiff = compareResult && compareResult.firstDiff === i;
-    return `<button class="iter-tab${i === 0 ? ' active' : ''}${hasDiff ? ' has-diff' : ''}" data-iter="${i}">
+    // Mark tab as stable if BOTH graphs are stable at this point
+    const bothStable = stableFrom.every(sf => i >= sf);
+    return `<button class="iter-tab${i === 0 ? ' active' : ''}${hasDiff ? ' has-diff' : ''}${bothStable && i > 0 ? ' is-stable' : ''}" data-iter="${i}">
       ${i === 0 ? 'Initial' : `Iter ${i}`}
     </button>`;
   }).join('');
@@ -630,6 +650,11 @@ function renderResults(graphs, iterData, compareResult) {
     const cc     = new Set(Object.values(colors)).size;
     const maxDeg = Math.max(...Object.values(graph.adjacency).map(s => s.size), 0);
 
+    // Show at which iteration this graph stabilised (compare mode only)
+    const stableNote = compareResult && stableFrom[gi] < numIters - 1
+      ? `<span class="graph-chip stable-chip">Stable @ iter ${stableFrom[gi]}</span>`
+      : '';
+
     panelEl.innerHTML = `
       <div class="graph-panel-content">
         <div class="graph-canvas" id="canvas-${gi}">
@@ -648,6 +673,7 @@ function renderResults(graphs, iterData, compareResult) {
             <span class="graph-chip">m = ${graph.edges.length}</span>
             <span class="graph-chip">Δ = ${maxDeg}</span>
             <span class="graph-chip kwl-chip">${state.k}-WL</span>
+            ${stableNote}
           </div>
         </div>
       </div>
@@ -674,6 +700,7 @@ function renderResults(graphs, iterData, compareResult) {
 
       graphs.forEach((_, gi) => {
         if (!iterData[gi]) return;
+        // Clamp to last available snapshot (handles padded stable iterations)
         const colors = iterData[gi][iter] ?? iterData[gi][iterData[gi].length - 1];
         const updater = updateFns.find(u => u.gi === gi);
         if (updater) updater.fn(colors);
