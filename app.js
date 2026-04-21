@@ -102,24 +102,19 @@ function parseGraph(text) {
 }
 
 // ---- TRUE k-WL ALGORITHM ----------------------------------
-// maxIter upper bound:
-//   k=1 → n       (1-WL stabilises in at most n rounds)
-//   k≥2 → min(n², 200)  (k-WL needs more rounds; cap for browser safety)
-// Convergence is checked BEFORE pushing so we never store a duplicate
-// stable snapshot — iterations.length reflects the true refinement count.
+// The loop runs until the tuple colouring is fully stable (no changes
+// between consecutive rounds). The convergence check compares newColors
+// against the OLD colors BEFORE overwriting — so it is always a genuine
+// before/after comparison. The upper-bound safety cap is 1000 to prevent
+// an infinite loop on pathological inputs while never artificially
+// truncating normal graphs.
 function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
   const { n, adjacency } = graph;
   const nodes = Array.from({ length: n }, (_, i) => i);
 
-  // Correct upper bound per k
-  let effectiveMaxIter;
-  if (maxIter !== null) {
-    effectiveMaxIter = maxIter;
-  } else if (k === 1) {
-    effectiveMaxIter = n;                    // 1-WL: at most n rounds
-  } else {
-    effectiveMaxIter = Math.min(n * n, 200); // k-WL: larger bound, browser-safe cap
-  }
+  // Safety cap: 1000 is far beyond any real-world convergence point
+  // but prevents a browser hang if something goes wrong.
+  const effectiveMaxIter = (maxIter !== null) ? maxIter : 1000;
 
   // Build all ordered k-tuples (n^k total)
   let tuples = [[]];
@@ -202,12 +197,18 @@ function runKWL(graph, k, maxIter = null, sharedHashMap = null) {
       newColors[tk] = getHash(sig);
     }
 
-    // Check convergence BEFORE pushing — if nothing changed the coloring
-    // has stabilised; break without adding a redundant duplicate snapshot.
+    // Check convergence against OLD colors BEFORE overwriting.
+    // If nothing changed the partition is stable — stop here and do NOT
+    // push a duplicate snapshot. Every entry in iterations[] is a round
+    // that actually changed something.
     const changed = tuples.some(t => newColors[tupleKey(t)] !== colors[tupleKey(t)]);
+
+    // NOW update colors for the next round
     colors = newColors;
+
     if (!changed) break;
 
+    // Only push when there was a real change
     iterations.push(nodeColorsFromTupleColors(newColors));
   }
 
@@ -502,7 +503,6 @@ function renderResults(graphs, iterData, compareResult) {
   const stack = document.createElement('div');
   stack.className = 'result-stack';
 
-  // Stats card
   const g1 = graphs[0], g2 = graphs[1];
   const totalNodes   = g2 ? g1.n + g2.n : g1.n;
   const iters        = iterData[0] ? iterData[0].length : 1;
@@ -545,7 +545,6 @@ function renderResults(graphs, iterData, compareResult) {
     });
   }, 200);
 
-  // Verdict card (compare mode only)
   if (compareResult) {
     const cls = compareResult.isomorphic ? 'pass' : 'fail';
     const verdictCard = document.createElement('div');
@@ -591,7 +590,6 @@ function renderResults(graphs, iterData, compareResult) {
     stack.appendChild(verdictCard);
   }
 
-  // Iteration viewer
   const iterCard = document.createElement('div');
   iterCard.className = 'iter-card anim-slide-up anim-d3';
 
@@ -685,7 +683,6 @@ function renderResults(graphs, iterData, compareResult) {
     });
   });
 
-  // Degree tables
   const tablesCard = document.createElement('div');
   tablesCard.className = 'tables-card anim-slide-up anim-d4';
   tablesCard.innerHTML = `
@@ -807,7 +804,6 @@ async function runAnalysis() {
     await delay(60);
     const g1 = parseGraph(text1);
 
-    // Safety check Graph A
     const maxN = getMaxSafeN(k);
     if (g1.n > maxN) {
       throw new KWLSizeError(
@@ -824,7 +820,6 @@ async function runAnalysis() {
       await delay(60);
       g2 = parseGraph(text2);
 
-      // Safety check Graph B
       if (g2.n > maxN) {
         throw new KWLSizeError(
           `Graph B has ${g2.n} nodes, but k=${k} only supports up to ${maxN} nodes safely.\n` +
@@ -884,12 +879,10 @@ function setK(val) {
   display.textContent = val;
   display.setAttribute('aria-valuenow', val);
 
-  // Trigger bump animation
   display.classList.remove('bump');
-  void display.offsetWidth; // force reflow to restart animation
+  void display.offsetWidth;
   display.classList.add('bump');
 
-  // Highlight the matching row in the safe-limits table
   document.querySelectorAll('.kwl-limits-table tbody tr').forEach(row => {
     row.classList.toggle('active-k', parseInt(row.dataset.k) === val);
   });
@@ -945,7 +938,6 @@ function animateBgOrbs() {
 document.addEventListener('DOMContentLoaded', () => {
   Progress.init();
 
-  // Mode toggle
   document.getElementById('btn-single').addEventListener('click', () => {
     state.mode = 'single';
     document.getElementById('btn-single').classList.add('active');
@@ -960,15 +952,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.compare-only').forEach(el => el.classList.remove('hidden'));
   });
 
-  // k steppers — no input element, purely button-driven
   document.getElementById('k-dec').addEventListener('click', () => { setK(state.k - 1); });
   document.getElementById('k-inc').addEventListener('click', () => { setK(state.k + 1); });
 
-  // File uploads
   setupUpload('file1', 'fname1', 'zone1');
   setupUpload('file2', 'fname2', 'zone2');
 
-  // Sound toggle
   const soundBtn = document.getElementById('sound-toggle');
   if (soundBtn) {
     soundBtn.addEventListener('click', () => {
@@ -978,18 +967,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Run analysis
   const runBtn = document.getElementById('run-btn');
   if (runBtn) {
     runBtn.addEventListener('click', runAnalysis);
   }
 
-  // Empty state demo graph
   drawEmptyStateGraph();
-
-  // Orb animation
   animateBgOrbs();
-
-  // Highlight default k=1 row
   setK(1);
 });
